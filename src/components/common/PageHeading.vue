@@ -1,0 +1,2 @@
+<script setup lang="ts">defineProps<{title:string;description:string;eyebrow?:string;notice?:string;badge?:string}>()</script>
+<template><div class="page-heading"><div><div class="eyebrow">{{eyebrow??'ROBOTIC LAB / 训练工作空间'}}</div><h1>{{title}}<span class="heading-dot">.</span></h1><p>{{description}}</p></div><div class="heading-actions"><slot/></div></div><div class="page-demo"><span class="demo-badge">{{badge??'MOCK'}}</span> {{notice??'本地模拟工作空间 · 不执行真实训练或环境检测'}}</div></template>

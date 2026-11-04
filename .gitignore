@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env.local
+
+managed-models/
+__pycache__/
+managed-datasets/
+
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store

@@ -1,0 +1,14 @@
+<script setup lang="ts">
+import {computed,ref,onMounted} from 'vue'
+import {useRouter} from 'vue-router'
+import PageHeading from '../components/common/PageHeading.vue'
+import DetailModal from '../components/common/DetailModal.vue'
+import {useDemoStore} from '../stores/demo'
+import type {Dataset} from '../types'
+const store=useDemoStore(),router=useRouter(),search=ref(''),format=ref(''),detail=ref<Dataset|null>(null),error=ref(''),loading=ref(false)
+const formats=computed(()=>[...new Set(store.datasets.map(d=>d.format))])
+const rows=computed(()=>store.datasets.filter(d=>(!format.value||d.format===format.value)&&`${d.name} ${d.path}`.toLowerCase().includes(search.value.toLowerCase())))
+async function refresh(){loading.value=true;try{await store.syncUploadedDatasets();error.value=''}catch(e){error.value=e instanceof Error?e.message:'数据集服务连接失败。'}finally{loading.value=false}}
+onMounted(refresh)
+</script>
+<template><PageHeading title="数据集" description="管理场景数据，从本机上传文件到平台存储。" badge="数据管理" notice="新建数据集为真实上传；预置数据仍标记为 Mock，模型兼容性待验证。"><button class="button primary" @click="router.push('/datasets/new')">新建数据集</button></PageHeading><div v-if="error" class="form-error" role="alert">{{error}}</div><div class="stat-strip"><div class="strip-item"><span>数据集总数</span><strong>{{store.datasets.length}}</strong></div><div class="strip-item"><span>已上传数据集</span><strong>{{store.datasets.filter(d=>d.source==='upload').length}}</strong></div><div class="strip-item"><span>数据格式</span><strong>{{formats.length}}</strong></div><div class="strip-item"><span>兼容性</span><strong style="font-size:18px">待验证</strong></div></div><div class="page-toolbar"><input v-model="search" placeholder="搜索数据集或路径…" aria-label="搜索数据集"/><select v-model="format" aria-label="筛选格式"><option value="">全部格式</option><option v-for="f in formats" :key="f">{{f}}</option></select><button class="button" :disabled="loading" @click="refresh">{{loading?'刷新中…':'刷新列表'}}</button></div><section class="panel page-table"><table><thead><tr><th>数据集 / 服务端路径</th><th>格式</th><th>Episodes</th><th>大小</th><th>来源</th><th>操作</th></tr></thead><tbody><tr v-for="d in rows" :key="d.id"><td><strong>{{d.name}}</strong><div class="path-text">{{d.path}}</div></td><td>{{d.format}}</td><td>{{d.episodes?d.episodes.toLocaleString():'待解析'}}</td><td>{{d.size}}</td><td>{{d.source==='upload'?'真实上传':'Mock'}}</td><td><button class="text-link" @click="detail=d">查看详情</button></td></tr></tbody></table><div v-if="!rows.length" class="empty-state">没有匹配的数据集。</div></section><div class="info-note">上传保存原始文件与目录结构，不自动解压或修改内容。Episodes、格式完整性与模型兼容性需后续解析验证。</div><DetailModal v-if="detail" :title="detail.name" :details="{'数据格式':detail.format,'Episodes':detail.episodes||'待解析','大小':detail.size,'来源':detail.source==='upload'?'本机上传到平台':'Mock','文件数量':detail.fileCount??'演示数据','存储路径':detail.path,'说明':detail.description||'暂无说明','候选模型':store.models.map(m=>m.name).join(' / '),'兼容状态':'全部待验证'}" @close="detail=null"/></template>

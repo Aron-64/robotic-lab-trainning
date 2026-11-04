@@ -1,0 +1,12 @@
+<script setup lang="ts">
+import { ref } from 'vue'
+import { ArrowUpRight, Box, GitBranch, Layers, CircleDot, Check } from '@lucide/vue'
+import DetailModal from '../common/DetailModal.vue'
+const models=[
+ {name:'Pi0.5',mark:'π',org:'Physical Intelligence',framework:'LeRobot',description:'面向通用机器人操作的视觉语言动作模型',run:'pi05-pick-place-v3',color:'cobalt',loss:'0.1842',progress:64},
+ {name:'NVIDIA GR00T',mark:'N',org:'NVIDIA',framework:'NVIDIA',description:'探索具身基础模型的多任务训练工作流',run:'groot-robotwin-finetune',color:'mint',loss:'0.3261',progress:38},
+ {name:'LingBot-VLA 2.0',mark:'L',org:'LingBot',framework:'PyTorch',description:'连接视觉感知、语言指令与机器人动作',run:'lingbot-manipulation-baseline',color:'violet',loss:'0.0928',progress:100}
+]
+const active=ref<(typeof models)[number]|null>(null)
+</script>
+<template><section class="portfolio"><div class="portfolio-heading"><div><span class="eyebrow">模型工作空间</span><h2>模型实验概览 <span class="small-badge">MOCK</span></h2></div><span>3 个模型配置 <span class="muted">/</span> 环境未连接</span></div><div class="model-grid"><button v-for="model in models" :key="model.name" :class="['model-card',model.color]" @click="active=model"><div class="model-card-top"><span class="model-monogram">{{model.mark}}</span><span class="model-framework">{{model.framework}}</span><ArrowUpRight :size="17"/></div><div class="model-title"><h3>{{model.name}}</h3><span>{{model.org}}</span></div><p>{{model.description}}</p><div class="model-experiment"><GitBranch :size="13"/><span>{{model.run}}</span></div><div class="model-metrics"><div><span>最新 Loss</span><strong>{{model.loss}}</strong></div><div><span>演示进度</span><strong>{{model.progress}}<small>%</small></strong></div><svg viewBox="0 0 100 35" aria-hidden="true"><path d="M2 3 L9 10 L16 6 L23 19 L30 14 L37 23 L44 20 L51 27 L58 24 L65 29 L72 27 L79 31 L86 29 L98 32" fill="none" stroke="currentColor" stroke-width="2"/></svg></div><div class="model-card-foot"><span><CircleDot v-if="model.progress<100" :size="12"/><Check v-else :size="12"/>{{model.progress<100?'运行中 · 模拟':'已完成 · 模拟'}}</span><span>查看配置 <ArrowUpRight :size="11"/></span></div></button></div><DetailModal v-if="active" :title="active.name+' · 模型配置'" :details="{'训练框架':active.framework,'模型类型':'Vision-Language-Action','环境状态':'未连接 · 模拟','代码目录':'/demo/models/'+active.name.toLowerCase().replaceAll(' ','-'),'Python 环境':'.venv','训练入口':'train.py（占位）','说明':'仅展示演示配置，不执行环境检测或训练命令'}" @close="active=null"/></section></template>

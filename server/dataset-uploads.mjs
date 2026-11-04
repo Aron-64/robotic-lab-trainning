@@ -1,0 +1,59 @@
+import {promises as fs,createWriteStream} from 'node:fs'
+import path from 'node:path'
+import {randomUUID,createHash} from 'node:crypto'
+import {Transform} from 'node:stream'
+import {pipeline} from 'node:stream/promises'
+export function validateFiles(files,maxBytes){
+ if(!Array.isArray(files)||!files.length||files.length>10000)throw new Error('请选择 1～10,000 个文件。')
+ const names=new Set();let total=0
+ const result=files.map(f=>{const name=String(f.path??'').normalize('NFC');if(!name||name.length>800||name.includes('\\')||/[\x00-\x1f:*?"<>|]/.test(name)||name.startsWith('/')||name.split('/').some(p=>!p||p==='.'||p==='..'||p.endsWith('.')||p.endsWith(' ')))throw new Error('文件相对路径不合法。');if(names.has(name.toLowerCase()))throw new Error('存在重复文件路径。');names.add(name.toLowerCase());if(!Number.isSafeInteger(f.size)||f.size<0)throw new Error('文件大小无效。');total+=f.size;if(!Number.isSafeInteger(total)||total>maxBytes)throw new Error('数据集大小超过服务端上传限制。');return {path:name,size:f.size,uploaded:false}})
+ for(const name of names){const parts=name.split('/');for(let i=1;i<parts.length;i++)if(names.has(parts.slice(0,i).join('/')))throw new Error('文件与文件夹路径冲突。')}
+ return {files:result,total}
+}
+export function createDatasetService({root=path.resolve(process.env.DATASET_STORAGE_ROOT||'managed-datasets'),maxBytes=Number(process.env.DATASET_MAX_BYTES??100*1024**3)}={}){
+ const sessions=new Map(),running=new Map();let ready
+ const dir=id=>path.join(root,id)
+ async function persist(s){const target=path.join(dir(s.id),'dataset.json'),temp=target+'.'+randomUUID()+'.tmp';await fs.writeFile(temp,JSON.stringify(s,null,2));await fs.rename(temp,target)}
+ async function init(){if(!ready)ready=(async()=>{await fs.mkdir(root,{recursive:true});for(const d of await fs.readdir(root,{withFileTypes:true})){if(!d.isDirectory()||!/^dataset-[a-f0-9-]+$/.test(d.name))continue;try{const s=JSON.parse(await fs.readFile(path.join(root,d.name,'dataset.json'),'utf8'));if(s.id===d.name)sessions.set(s.id,s)}catch{}}})();await ready}
+ function view(s){return {...s,path:path.join(dir(s.id),'files'),fileCount:s.files.length,uploadedBytes:s.files.reduce((n,f)=>n+(f.uploaded?f.size:0),0)}}
+ function send(res,code,data){res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data))}
+ async function readJson(req){let body='';for await(const chunk of req){body+=chunk;if(Buffer.byteLength(body)>2*1024**2)throw new Error('文件清单过大。')}return JSON.parse(body)}
+ return async function middleware(req,res,next){const pathname=req.url?.split('?')[0];if(!pathname?.startsWith('/api/dataset-uploads'))return next?.();try{
+  await init()
+  if(req.method==='GET'&&pathname==='/api/dataset-uploads')return send(res,200,{root,maxBytes,jobs:[...sessions.values()].filter(s=>s.status==='ready').map(view)})
+  const [, , ,id,indexOrAction]=pathname.split('/'),s=sessions.get(id)
+  if(req.method==='GET')return s?send(res,200,view(s)):send(res,404,{message:'上传记录不存在。'})
+  if(!req.headers.origin||new URL(req.headers.origin).host!==req.headers.host)return send(res,403,{message:'只接受同源页面发起的上传。'})
+  if(req.method==='POST'&&req.headers['content-type']?.split(';')[0]!=='application/json')return send(res,415,{message:'请使用 JSON 提交文件清单。'})
+  if(req.method==='POST'&&pathname==='/api/dataset-uploads'){
+   const input=await readJson(req),name=String(input.name??'').trim();if(!name||name.length>100)throw new Error('数据集名称应为 1～100 字。')
+   if([...sessions.values()].some(s=>s.name===name&&s.status==='ready'))return send(res,409,{message:'已存在同名数据集。'})
+   const manifest=validateFiles(input.files,maxBytes)
+   const space=await fs.statfs(root);if(manifest.total>space.bavail*space.bsize)throw new Error('服务端可用磁盘空间不足。')
+   const session={id:'dataset-'+randomUUID(),name,format:['LeRobot','HDF5','Parquet','其他'].includes(input.format)?input.format:'待识别',description:String(input.description??'').slice(0,2000),status:'uploading',createdAt:new Date().toISOString(),...manifest}
+   await fs.mkdir(path.join(dir(session.id),'.parts'),{recursive:true});sessions.set(session.id,session);await persist(session);return send(res,201,view(session))
+  }
+  if(!s)return send(res,404,{message:'上传记录不存在。'})
+  if(req.method==='POST'&&indexOrAction==='cancel'){
+   if(s.status==='ready')return send(res,409,{message:'已完成的数据集不能作为未完成上传取消。'})
+   s.status='cancelled';await persist(s);const tasks=[...running.entries()].filter(([key])=>key.startsWith(s.id+':')).map(([,v])=>v);tasks.forEach(v=>v.controller.abort());await Promise.allSettled(tasks.map(v=>v.promise));await fs.rm(path.join(dir(id),'files'),{recursive:true,force:true});await fs.rm(path.join(dir(id),'.parts'),{recursive:true,force:true});return send(res,200,view(s))
+  }
+  if(s.status!=='uploading')return send(res,409,{message:'该上传会话不可写入。'})
+  if(req.method==='PUT'&&/^\d+$/.test(indexOrAction??'')){
+   const index=Number(indexOrAction),file=s.files[index],key=id+':'+index;if(!file)return send(res,404,{message:'文件不在上传清单中。'});if([...running.keys()].some(k=>k.startsWith(id+':')))return send(res,409,{message:'该数据集已有文件正在上传，请顺序上传。'})
+   if(req.headers['content-length']!==undefined&&Number(req.headers['content-length'])!==file.size)return send(res,400,{message:'文件大小与清单不符。'})
+   const controller=new AbortController(),part=path.join(dir(id),'.parts',String(index)),target=path.join(dir(id),'files',file.path)
+   const promise=(async()=>{let bytes=0;const hash=createHash('sha256');await fs.mkdir(path.dirname(part),{recursive:true});const limit=new Transform({transform(chunk,encoding,callback){bytes+=chunk.length;if(bytes>file.size)return callback(new Error('文件超出声明大小。'));hash.update(chunk);callback(null,chunk)}});try{await pipeline(req,limit,createWriteStream(part),{signal:controller.signal});if(bytes!==file.size)throw new Error('文件未完整上传，请重试。');if(s.status!=='uploading')throw new Error('上传已取消。');await fs.mkdir(path.dirname(target),{recursive:true});await fs.rename(part,target);file.sha256=hash.digest('hex');file.uploaded=true;await persist(s)}catch(e){await fs.rm(part,{force:true});throw e}})()
+   running.set(key,{controller,promise});try{await promise;return send(res,200,{uploaded:true,index,sha256:file.sha256})}finally{running.delete(key)}
+  }
+  if(req.method==='POST'&&indexOrAction==='complete'){
+   if(s.files.some(f=>!f.uploaded)||[...running.keys()].some(k=>k.startsWith(id+':')))return send(res,409,{message:'仍有文件未完成上传。'})
+   for(const file of s.files){const info=await fs.stat(path.join(dir(id),'files',file.path));if(info.size!==file.size)throw new Error('文件大小校验失败，请重试上传。')}
+   s.status='ready';await persist(s);await fs.rm(path.join(dir(id),'.parts'),{recursive:true,force:true});return send(res,200,view(s))
+  }
+  return send(res,405,{message:'不支持的上传操作。'})
+ }catch(e){if(!res.headersSent&&!res.destroyed)send(res,400,{message:e.code==='ENOSPC'?'服务端磁盘空间不足。':e.message})}}
+}
+const middleware=createDatasetService()
+export const datasetUploadMiddleware=middleware
+export function datasetUploadPlugin(){return {name:'dataset-upload',configureServer(server){server.middlewares.use(middleware)},configurePreviewServer(server){server.middlewares.use(middleware)}}}

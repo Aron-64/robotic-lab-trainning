@@ -1,0 +1,53 @@
+<script setup lang="ts">
+import { computed, reactive, ref, onMounted } from 'vue'
+import { useRoute,useRouter } from 'vue-router'
+import { Play,RotateCcw } from '@lucide/vue'
+import PageHeading from '../components/common/PageHeading.vue'
+import { useDemoStore } from '../stores/demo'
+import { defaultConfig } from '../mocks/catalog'
+import { validateConfig } from '../mocks/engine'
+import { getGpuResources } from '../api/resources'
+const store=useDemoStore(),route=useRoute(),router=useRouter()
+const errors=ref<string[]>([]),launching=ref(false),detecting=ref(false),gpuCount=ref(1),gpuLimit=ref(0),gpuError=ref(''),gpuNames=ref('')
+const config=reactive(defaultConfig(store.models[0]!))
+config.name=`robot-training-${store.jobs.length+1}`
+const resume=store.checkpoints.find(cp=>cp.name===route.query.resume)
+if(resume){const source=store.jobs.find(j=>j.id===resume.job);Object.assign(config,source?.config??defaultConfig(store.models.find(m=>m.name===resume.model)!));config.model=resume.model;config.resume=resume.name;config.name=`${source?.name??'training'}-resume`;config.steps=Math.max(config.steps,resume.step+10000);gpuCount.value=config.gpuDevices.length}
+const selectedModel=computed(()=>store.models.find(m=>m.name===config.model)!)
+const dataset=computed(()=>store.datasets.find(d=>d.name===config.dataset))
+const resumeOptions=computed(()=>store.checkpoints.filter(cp=>cp.model===config.model))
+function changeModel(){config.environment=selectedModel.value.environment;config.extra=selectedModel.value.extraDefault;config.resume=''}
+async function refreshResources(clamp=true){if(detecting.value)return false;detecting.value=true;gpuError.value='';try{const result=await getGpuResources();gpuLimit.value=result.count;gpuNames.value=[...new Set(result.devices.map(d=>d.name))].join(' / ');if(clamp&&gpuCount.value>result.count&&result.count>0){gpuCount.value=result.count;store.notify(`GPU 数量已调整为容器上限 ${result.count}。`)}if(!result.count)gpuError.value='当前容器没有可用 GPU，请先在云平台申请 GPU 资源。';return result.count>0}catch(e){gpuLimit.value=0;gpuError.value=e instanceof Error?e.message:'GPU 检测失败，请检查资源接口。';return false}finally{detecting.value=false}}
+onMounted(()=>refreshResources())
+const quote=(s:string)=>"'"+s.replaceAll("'","'\\''")+"'"
+const command=computed(()=>`# Mock 命令示意，不执行\ncd ${quote(selectedModel.value.repo)}\n${quote(config.environment+'/bin/python')} ${quote(selectedModel.value.entry)} \\\n  --dataset ${quote(dataset.value?.path??'')} \\\n  --steps ${config.steps} --batch-size ${config.batchSize} \\\n  --learning-rate ${config.learningRate} --optimizer ${config.optimizer} \\\n  --precision ${config.precision} --gpu-count ${gpuCount.value} \\\n  --save-interval ${config.saveInterval} --output-dir ${quote(config.outputDir)} \\\n  --seed ${config.seed} --model-extra ${config.extra}${config.resume?' \\\n  --resume '+quote(config.resume):''}`)
+async function launch(){if(launching.value)return;launching.value=true;errors.value=[];try{if(!await refreshResources(false)){errors.value=['无法确认容器 GPU 资源，暂不能创建任务。'];return}config.gpuDevices=Array.from({length:gpuCount.value},(_,i)=>i);errors.value=validateConfig(config,gpuLimit.value);if(errors.value.length)return;const id=store.launch(JSON.parse(JSON.stringify(config)),gpuLimit.value);await router.push(`/jobs/${id}`)}catch(e){errors.value=[e instanceof Error?e.message:'创建任务失败。']}finally{launching.value=false}}
+</script>
+<template>
+<PageHeading title="新建训练" description="选择模型与数据，填写参数后直接启动。"/>
+<form class="training-form" @submit.prevent="launch">
+ <div v-if="errors.length" class="form-error" role="alert"><div v-for="error in errors" :key="error">{{error}}</div></div>
+ <section class="training-section"><h2>任务与数据</h2><div class="form-grid training-fields">
+  <label>任务名称<input v-model="config.name" required maxlength="80"/></label>
+  <label>模型<select v-model="config.model" @change="changeModel"><option v-for="m in store.models" :key="m.id">{{m.name}}</option></select><small>{{selectedModel.framework}} · Vision-Language-Action</small></label>
+  <label>数据集<select v-model="config.dataset"><option v-for="d in store.datasets" :key="d.id">{{d.name}}</option></select><small>{{dataset?.format}} · {{dataset?.episodes?dataset.episodes.toLocaleString()+' episodes':'Episodes 待解析'}} · {{dataset?.size}} · 兼容性待验证</small></label>
+  <label>Python 环境<select v-model="config.environment"><option v-for="m in store.models" :key="m.id" :value="m.environment">{{m.environment}}</option></select><small>已登记的环境路径，训练环境仍为 Mock。</small></label>
+ </div></section>
+ <section class="training-section"><h2>计算资源</h2><div class="resource-row"><label class="gpu-count-field">GPU 数量<select v-model.number="gpuCount" :disabled="detecting||gpuLimit===0" required><option v-if="gpuLimit===0" :value="gpuCount">{{detecting?'检测中…':'暂不可选'}}</option><option v-for="n in gpuLimit" :key="n" :value="n">{{n}} 张</option></select></label><div class="gpu-detection"><span v-if="detecting">正在检测容器 GPU…</span><span v-else-if="gpuError" class="resource-error" role="status">{{gpuError}}</span><template v-else><strong>容器已分配 {{gpuLimit}} 张 GPU</strong><span>{{gpuNames}}</span></template><small>上限取自容器可见资源，不会额外申请 GPU。</small></div><button type="button" class="button" :disabled="detecting||launching" @click="refreshResources()"><RotateCcw :size="13"/>重新检测</button></div></section>
+ <section class="training-section"><h2>训练参数</h2><div class="form-grid training-fields">
+  <label>Training Steps<input v-model.number="config.steps" type="number" min="100" max="1000000" required/></label>
+  <label>Batch Size<input v-model.number="config.batchSize" type="number" min="1" max="1024" required/></label>
+  <label>Learning Rate<input v-model.number="config.learningRate" type="number" min="0.00000001" max="1" step="any" required/></label>
+  <label>Optimizer<select v-model="config.optimizer"><option>AdamW</option><option>Adam</option><option>SGD</option></select></label>
+  <label>Precision<select v-model="config.precision"><option>bf16</option><option>fp16</option><option>fp32</option></select></label>
+  <label>Random Seed<input v-model.number="config.seed" type="number" min="0" max="4294967295" required/></label>
+  <label>{{selectedModel.extraLabel}}<input v-model.number="config.extra" type="number" min="1" max="1024" required/><small>{{config.model}} 专属演示参数</small></label>
+ </div></section>
+ <section class="training-section"><h2>保存与恢复</h2><div class="form-grid training-fields"><label>保存间隔<input v-model.number="config.saveInterval" type="number" min="1" :max="config.steps" required/></label><label>输出目录<input v-model="config.outputDir" required/></label><label class="resume-field">Resume From Checkpoint<select v-model="config.resume"><option value="">从头开始</option><option v-for="cp in resumeOptions" :key="cp.name" :value="cp.name">{{cp.name}} · Step {{cp.step}}</option></select></label></div></section>
+ <details class="training-command"><summary>查看命令预览</summary><pre class="command-preview">{{command}}</pre><p>命令仅展示配置结构，未适配真实模型脚本，不执行。</p></details>
+ <div class="training-submit"><p>GPU 数量为只读实测；训练过程仍为 Mock。参数默认值仅供演示。</p><button class="button primary" :disabled="launching||detecting||gpuLimit===0"><Play :size="14"/>{{launching?'正在校验并创建…':'启动模拟训练'}}</button></div>
+</form>
+</template>
+<style scoped>
+.training-form{max-width:900px}.training-section{border-top:1px solid var(--border);padding:24px 0 28px}.training-section h2{font-size:14px;margin:0 0 20px;font-weight:600}.training-fields{grid-template-columns:minmax(0,1fr);gap:19px 25px}.training-fields input,.training-fields select{width:100%;height:39px}.training-fields small{font-size:10px}.resource-row{display:flex;align-items:center;gap:25px}.gpu-count-field{display:flex;flex-direction:column;gap:8px;min-width:180px;font-size:12px}.gpu-count-field select{border:1px solid var(--border);background:var(--surface);color:var(--text);padding:10px;border-radius:7px;font-size:12px}.gpu-detection{display:flex;flex:1;flex-direction:column;gap:6px;font-size:11px;color:var(--muted);min-width:0;line-height:1.6}.gpu-detection strong{font-weight:500;color:var(--text)}.gpu-detection small{font-size:10px}.resource-error{color:#bd624c}.resource-row>.button{flex-shrink:0}.resume-field{grid-column:span 1}.training-command{border-top:1px solid var(--border);padding:18px 0;color:var(--muted);font-size:11px}.training-command summary{cursor:pointer;display:list-item}.training-command p{font-size:10px}.training-submit{display:flex;align-items:center;justify-content:space-between;gap:20px;border-top:1px solid var(--border);padding:20px 0}.training-submit p{font-size:11px;color:var(--muted);line-height:1.8}.training-submit .button{flex-shrink:0}.training-submit button:disabled{opacity:.5;cursor:not-allowed}@media(max-width:1000px){.training-fields{grid-template-columns:minmax(0,1fr)}.resource-row{gap:16px}.gpu-count-field{min-width:130px}}@media(max-width:700px){.training-fields{grid-template-columns:1fr}.resource-row{flex-wrap:wrap;align-items:flex-start}.gpu-count-field{width:100%}.gpu-detection{flex-basis:55%}.training-submit{align-items:flex-start;flex-direction:column}.training-submit .button{width:100%}}
+</style>
