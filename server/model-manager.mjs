@@ -1,10 +1,11 @@
+import {trustedModelCaller,modelRequestOriginAllowed} from './model-access.mjs'
 import {scanCheckpoints} from './checkpoint-catalog.mjs'
 import { spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
-import {validateTransfer,transferModel} from './model-transfer.mjs'
+import {validateTransfer,transferModel,validateCheckpointRoot} from './model-transfer.mjs'
 import { validateImport, readmePlan } from './model-import-policy.mjs'
 const root=path.resolve(process.env.MODEL_STORAGE_ROOT||path.join(process.cwd(),'managed-models'))
 const helper=fileURLToPath(new URL('./download-weights.py',import.meta.url))
@@ -61,10 +62,10 @@ export async function modelManagerMiddleware(req,res,next){const pathname=req.ur
  if(req.method==='GET'&&pathname==='/api/model-imports'){return send(res,200,{root,jobs:[...jobs.values()].sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(publicJob)})}
  if(req.method==='GET'){const id=pathname.split('/')[3];const job=jobs.get(id);return job?send(res,200,publicJob(job)):send(res,404,{message:'导入记录不存在。'})}
  // Mutations require a same-origin browser request. Transfer paths are restricted to configured source roots.
- const address=req.socket?.remoteAddress
- if(address&&!['127.0.0.1','::1','::ffff:127.0.0.1'].includes(address))return send(res,403,{message:'模型导入仅允许本地访问，请使用 localhost 或 SSH 端口转发；云端需通过已鉴权的本地网关访问。'})
- if(!req.headers.origin||new URL(req.headers.origin).host!==req.headers.host||req.headers['content-type']?.split(';')[0]!=='application/json')return send(res,403,{message:'仅接受同源页面提交的 JSON 请求。'})
- if(req.method==='POST'&&pathname==='/api/model-imports/scan-checkpoints'){const config=await validateTransfer({...await body(req),weightMode:'checkpoints'},root);return send(res,200,{checkpoints:await scanCheckpoints(config.sourceWeights)})}
+ if(!modelRequestOriginAllowed(req))return send(res,403,{message:'仅接受同源页面的 JSON 请求；若网关重写 Host，请配置受信任网关及 MODEL_ALLOWED_ORIGINS。'})
+ // Read-only scans do not execute environment code and remain confined to allowed roots.
+ if(req.method==='POST'&&pathname==='/api/model-imports/scan-checkpoints'){const input=await body(req);const folder=await validateCheckpointRoot(input.sourceWeights,root);return send(res,200,{checkpoints:await scanCheckpoints(folder)})}
+ if(!trustedModelCaller(req.socket?.remoteAddress))return send(res,403,{message:'扫描允许远程访问；执行模型导入需通过已鉴权网关。请管理员将网关直连 IP 配置到 MODEL_TRUSTED_PROXY_IPS 并重启服务。'})
  if(req.method==='POST'&&pathname==='/api/model-imports'){
   if(active)return send(res,409,{message:'已有导入正在运行，请等待或取消后再创建。'})
   const input=await body(req);const config=input.mode==='transfer'?await validateTransfer(input,root):validateImport(input);if([...jobs.values()].some(j=>j.name===config.name))return send(res,409,{message:'模型名称已存在，请使用不同名称。'});const id='model-'+randomUUID();const job={...config,id,status:'queued',createdAt:new Date().toISOString(),logs:[],error:'',paths:{root:path.join(root,id)},plan:null}

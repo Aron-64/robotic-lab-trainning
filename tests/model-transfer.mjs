@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 const temp=await mkdtemp(path.join(os.tmpdir(),'lab-transfer-')),root=path.join(temp,'managed'),source=path.join(temp,'sources')
 process.env.MODEL_STORAGE_ROOT=root;process.env.MODEL_TRANSFER_ROOTS=source
-const {validateTransfer}=await import('../server/model-transfer.mjs')
+const {validateTransfer,validateCheckpointRoot}=await import('../server/model-transfer.mjs')
 const {importModel}=await import('../server/model-manager.mjs')
 try{
  const code=path.join(source,'code'),weights=path.join(source,'weights'),env=path.join(code,'env')
@@ -14,6 +14,9 @@ try{
  const input={name:'Transferred',sourceCode:code,sourceWeights:weights,sourceEnvironment:env}
  await assert.rejects(validateTransfer({...input,sourceCode:'/etc'},root))
  await assert.rejects(validateTransfer({...input,sourceCode:'relative'},root))
+ assert.equal(await validateCheckpointRoot(weights,root),weights)
+ await assert.rejects(validateCheckpointRoot('/missing/cloud/checkpoints',root),/当前服务所在机器/)
+ await assert.rejects(validateCheckpointRoot('relative',root),/绝对路径/)
  const config=await validateTransfer(input,root)
  const job={...config,id:'model-transfer-fixture',logs:[],paths:{},status:'queued'}
  await mkdir(path.join(root,job.id))

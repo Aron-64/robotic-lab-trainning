@@ -75,3 +75,13 @@ export async function transferModel(job,{root,executor,phase,log}){
  if(job.cancelRequested)throw new Error('已取消')
  job.status='ready';job.error='';log(job,'转移完成：代码与权重已复制，原 env 路径已复用。未验证训练；环境中的 editable 依赖可能仍引用原代码，请保留原目录。')
 }
+
+export async function validateCheckpointRoot(value,storage){
+ const source=String(value??'').trim();if(!path.isAbsolute(source))throw new Error('请填写实验 Checkpoints 根目录的绝对路径。')
+ let real;try{real=await fs.realpath(source)}catch{throw new Error('当前服务所在机器找不到该目录。本机预览不能读取云端路径，请在云端平台扫描。')}
+ const roots=await Promise.all((process.env.MODEL_TRANSFER_ROOTS||'/mnt/data').split(path.delimiter).map(p=>fs.realpath(p).catch(()=>null)))
+ if(!roots.some(p=>p&&within(p,real)))throw new Error('目录不在 MODEL_TRANSFER_ROOTS 允许范围内。')
+ if(!(await fs.stat(real)).isDirectory())throw new Error('请填写目录，不是权重文件。')
+ const target=await fs.realpath(storage);if(within(target,real)||within(real,target))throw new Error('源目录不能与管理目录相互包含。')
+ return real
+}

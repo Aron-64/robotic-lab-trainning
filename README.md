@@ -152,3 +152,7 @@ P800 容器建议设置 `ACCELERATOR_BACKEND=xpu` 后启动服务，例如 `ACCE
 代码复制排除根 checkpoints、wandb、.git、环境、常见缓存、.log 和指定权重目录，assets 与实际源码保留；选中步骤以 weights/<step> 存储，附带原实验目录与格式元信息。原 env 未安装 pip 时保留“依赖未验证”提示，仍可导入；有 pip 时依赖检查失败仍中止。
 
 导入模型创建模拟训练时区分基础权重初始化、Checkpoint 参数微调、完整状态续训和从零训练。PyTorch 流程拒绝 JAX Checkpoints；“最新兼容版本”在创建任务时固定为具体版本路径并保存到任务配置/日志。新任务从 0 开始，模拟续训从选中步骤开始。保留数量仅删除当前模拟任务的历史 Checkpoint 记录，不删除真实磁盘文件。真实训练后端、按任意步骤恢复 OpenPI 的入口适配、架构兼容性验证和权重转换仍未实现。
+
+### 云端模型访问配置（更新）
+
+Checkpoint 扫描允许远程同源 JSON 请求，不再要求 localhost；仍受 MODEL_TRANSFER_ROOTS 限制且不会执行环境 Python。导入、取消、重试接受本地请求或 MODEL_TRUSTED_PROXY_IPS 指定的网关直连 IP（逗号分隔，精确匹配，不支持通配符）。该配置不提供登录认证，只能填写已经负责认证的网关地址；后端端口应仅供该网关访问。不会依据 X-Forwarded-For 等客户端头部放行。若网关重写 Host，另外设置 MODEL_ALLOWED_ORIGINS 为浏览器使用的完整 origin（例如 https://lab.example，逗号分隔），只对受信任来源生效。修改环境变量后重启后端。
