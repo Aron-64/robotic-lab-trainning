@@ -20,8 +20,8 @@ async function request(method,url,body,origin='http://localhost'){
 }
 try{
  assert.equal((await request('POST','/api/dataset-uploads',{name:'bad',files:[{path:'a',size:1}]},'https://other.test')).status,403)
- const created=await request('POST','/api/dataset-uploads',{name:'Dataset',format:'HDF5',files:[{path:'scene/data.h5',size:5},{path:'scene/empty.txt',size:0}]})
- assert.equal(created.status,201);const id=created.data.id
+ const created=await request('POST','/api/dataset-uploads',{name:'Dataset',project:'Franka',format:'LeRobot v2.1',files:[{path:'scene/data.h5',size:5},{path:'scene/empty.txt',size:0}]})
+ assert.equal(created.data.project,'Franka');assert.equal(created.data.format,'LeRobot v2.1');assert.equal(created.status,201);const id=created.data.id
  assert.equal((await request('POST',`/api/dataset-uploads/${id}/complete`,{})).status,409)
  assert.equal((await request('PUT',`/api/dataset-uploads/${id}/0`,'123')).status,400)
  assert.equal((await request('PUT',`/api/dataset-uploads/${id}/0`,'hello')).status,200)
@@ -30,8 +30,10 @@ try{
  assert.equal(completed.status,200);assert.equal(completed.data.status,'ready');assert.equal(completed.data.uploadedBytes,5)
  assert.equal(await readFile(path.join(completed.data.path,'scene/data.h5'),'utf8'),'hello')
  assert.equal(completed.data.files[0].sha256,'2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824')
+ const classified=await request('POST',`/api/dataset-uploads/${id}/metadata`,{project:'宇树G1',format:'LeRobot v3.0'});assert.equal(classified.status,200)
+ assert.equal((await request('POST',`/api/dataset-uploads/${id}/metadata`,{project:'invalid',format:'HDF5'})).status,400)
  handler=createDatasetService({root,maxBytes:1000,importRoots:[source]})
- assert.equal((await request('GET','/api/dataset-uploads')).data.jobs.length,1)
+ const restored=(await request('GET','/api/dataset-uploads')).data.jobs;assert.equal(restored.length,1);assert.equal(restored[0].project,'宇树G1');assert.equal(restored[0].format,'LeRobot v3.0')
  const second=(await request('POST','/api/dataset-uploads',{name:'Cancel',files:[{path:'f',size:4}]})).data
  await request('PUT',`/api/dataset-uploads/${second.id}/0`,'test')
  assert.equal((await request('POST',`/api/dataset-uploads/${second.id}/cancel`,{})).status,200)

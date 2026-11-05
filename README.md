@@ -128,3 +128,15 @@ P800 容器建议设置 `ACCELERATOR_BACKEND=xpu` 后启动服务，例如 `ACCE
 默认仅允许 `/mnt/data` 下的源目录；额外路径可设置 `MODEL_TRANSFER_ROOTS=/mnt/data:/data/models`（Linux 冒号分隔），环境也必须在允许范围内。源目录不得与管理目录互相包含。仅支持普通文件/目录；符号链接会报错，需要先准备普通文件副本。环境的 bin/python 可使用 venv 常见的解释器链接。请使用可信环境，校验会执行环境内 Python；此检查不保证训练入口、XPU 库或完整模型兼容性。已有 editable 安装可能继续引用原代码，必须保留原代码和 env；服务不会自动重写依赖。
 
 继承原模型导入接口的同源及本地访问限制，云端通过已鉴权本地网关或 SSH 端口转发使用。文件复制已通过临时目录测试，Python 检查使用模拟执行器，尚未在实际云端环境验证。
+
+### 数据集分类与可视化
+
+数据集列表按 Franka、Openarm、宇树G1、仿真、其他、未分类筛选。新建数据集支持项目分类与 LeRobot v2.1 / LeRobot v3.0 标注，已有数据可在可视化页保存分类到服务端；旧数据默认未分类。点击名称或“可视化”进入 `/datasets/:id`。
+
+可视化页提供 Episode 搜索/分页、多相机视频、统一时间轴、播放/暂停、倍速、按 FPS 逐帧定位、元信息、Features 和文件搜索。v2.1 读取 `meta/info.json` 与 `meta/episodes.jsonl`；v3.0 使用 Node 的 hyparquet / hyparquet-compressors 读取 `meta/episodes/**/*.parquet`，依据各相机的 chunk/file 索引及 from/to_timestamp 播放共享视频片段。可识别上传文件夹带来的单层或多层外包装目录。界面按相机最短公共时长同步播放，浏览器定位精度受编码关键帧影响，不是实验级帧同步工具。
+
+服务端 `GET /api/dataset-uploads/:id/visualization` 返回解析结果；`GET/HEAD /api/dataset-uploads/:id/video?path=...` 支持单段 HTTP Range 与 416 响应，视频仅限上传清单中的 MP4/WebM/MOV，路径真实解析必须位于数据集内。只读，不执行数据集中的代码。云端网关应沿用平台认证并透传 Range。
+
+缺少元数据时可浏览原始视频；v3 原始视频可能含多个 Episode。包含多个数据集根目录时需分别导入。Episode 索引最多展示 10,000 条，JSON 元数据上限 16 MB，文件搜索每次显示前 100 条。浏览器必须支持视频编码（AV1/HEVC 支持因浏览器而异）；不自动转码、解压或解析内嵌图片视频。HDF5/普通 Parquet 可查看清单及独立视频，目前不提供其内部数组、动作/状态曲线。格式标注不会转换数据，实际识别以 meta/info.json 为准。Mock 条目没有真实视频。
+
+安装更新时执行 `npm ci`，然后构建并重启应用/API。新增测试使用真实生成的 v3 Parquet 索引，验证共享视频偏移、v2 外包装路径、Range/HEAD、越界路径及分类持久化；尚未用用户云端视频进行浏览器播放实测。格式参考：[LeRobot v3 官方说明](https://huggingface.co/docs/lerobot/lerobot-dataset-v3)。

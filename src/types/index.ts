@@ -7,6 +7,6 @@ export interface Checkpoint { name: string; model: string; job: string; step: nu
 export interface LossPoint { step: number; loss: number }
 export interface JobLossHistory { jobId: string; points: LossPoint[] }
 export interface Model { id:string; name:string; framework:string; description:string; repo:string; environment:string; python:string; entry:string; version:string; torch:string; checked:boolean; extraLabel:string; extraDefault:number; source?:'import'; weights?:string }
-export interface Dataset { id:string; name:string; format:string; episodes:number; size:string; path:string; description:string; source?:'upload'; fileCount?:number }
+export interface Dataset { project?:string; id:string; name:string; format:string; episodes:number; size:string; path:string; description:string; source?:'upload'; fileCount?:number }
 
 export interface ModelImport { mode?:'transfer'; sourceCode?:string; sourceWeights?:string; sourceEnvironment?:string; progress?:{copiedBytes:number;totalBytes:number;copiedFiles:number;totalFiles:number}; id:string; name:string; github:string; weights:string; provider:string; repoId:string; revision:string; python:string; status:string; error:string; createdAt:string; logs:string[]; paths:{root:string;code?:string;weights?:string;environment?:string;python?:string}; readme?:string; readmeFile?:string; commit?:string; weightsDownloaded?:boolean; runtime?:{python:string;torch:string}; plan?:{commands:{label:string;args:string[]}[];unsupported:string[];automatic:boolean} }

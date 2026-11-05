@@ -8,6 +8,7 @@ export const routes:RouteRecordRaw[]=[
  {path:'/models/new',name:'NewModel',component:()=>import('../views/NewModel.vue'),meta:{title:'新建模型',section:'Models'}},
  {path:'/models',name:'Models',component:()=>import('../views/Models.vue'),meta:{title:'模型与环境',section:'Models'}},
  {path:'/datasets/new',name:'NewDataset',component:()=>import('../views/NewDataset.vue'),meta:{title:'新建数据集',section:'Datasets'}},
+ {path:'/datasets/:id',name:'DatasetViewer',component:()=>import('../views/DatasetViewer.vue'),meta:{title:'数据集可视化',section:'Datasets'}},
  {path:'/datasets',name:'Datasets',component:()=>import('../views/Datasets.vue'),meta:{title:'数据集',section:'Datasets'}},
  {path:'/checkpoints',name:'Checkpoints',component:()=>import('../views/Checkpoints.vue'),meta:{title:'Checkpoints',section:'Checkpoints'}},
  {path:'/settings',name:'Settings',component:()=>import('../views/Settings.vue'),meta:{title:'设置',section:'Settings'}},

@@ -1,3 +1,4 @@
+import {datasetProjects,datasetFormats,inspectDataset,serveDatasetVideo} from './dataset-visualizer.mjs'
 import {promises as fs,createWriteStream,constants} from 'node:fs'
 import path from 'node:path'
 import {randomUUID,createHash} from 'node:crypto'
@@ -55,6 +56,11 @@ export function createDatasetService({root=path.resolve(process.env.DATASET_STOR
   await init()
   if(req.method==='GET'&&pathname==='/api/dataset-uploads')return send(res,200,{root,maxBytes,importRoots,jobs:[...sessions.values()].filter(s=>s.status==='ready').map(view)})
   const [, , ,id,indexOrAction]=pathname.split('/'),s=sessions.get(id)
+  if(['GET','HEAD'].includes(req.method)&&s&&['visualization','video'].includes(indexOrAction)){
+   if(s.status!=='ready')return send(res,409,{message:'数据集尚未完成导入。'})
+   if(indexOrAction==='video')return await serveDatasetVideo(req,res,s,path.join(dir(id),'files'),new URL(req.url,'http://localhost').searchParams.get('path'))
+   const result=await inspectDataset(s,path.join(dir(id),'files'));if(Number.isSafeInteger(result.info?.total_episodes)&&result.info.total_episodes>=0){s.episodes=result.info.total_episodes;await persist(s)}return send(res,200,result)
+  }
   if(req.method==='GET')return s?send(res,200,view(s)):send(res,404,{message:'上传记录不存在。'})
   if(!req.headers.origin||new URL(req.headers.origin).host!==req.headers.host)return send(res,403,{message:'只接受同源页面发起的上传。'})
   if(req.method==='POST'&&req.headers['content-type']?.split(';')[0]!=='application/json')return send(res,415,{message:'请使用 JSON 提交文件清单。'})
@@ -67,7 +73,7 @@ export function createDatasetService({root=path.resolve(process.env.DATASET_STOR
    const storage=await fs.realpath(root)
    if(inside(resolved,storage)||inside(storage,resolved))throw new Error('源目录不能包含数据集管理目录，也不能位于其中。')
    if([...sessions.values()].some(s=>s.name===name&&['ready','copying','uploading'].includes(s.status)))return send(res,409,{message:'已存在同名数据集或导入任务。'})
-   const session={id:'dataset-'+randomUUID(),name,format:['LeRobot','HDF5','Parquet','其他'].includes(input.format)?input.format:'待识别',description:String(input.description??'').slice(0,2000),source:'cloud',status:'copying',createdAt:new Date().toISOString(),files:[],total:0}
+   const session={id:'dataset-'+randomUUID(),name,project:datasetProjects.includes(input.project)?input.project:'未分类',format:datasetFormats.includes(input.format)?input.format:'待识别',description:String(input.description??'').slice(0,2000),source:'cloud',status:'copying',createdAt:new Date().toISOString(),files:[],total:0}
    await fs.mkdir(dir(session.id),{recursive:true});sessions.set(session.id,session);await persist(session)
    const controller=new AbortController(),key=session.id+':cloud',promise=copyCloud(session,resolved,controller.signal)
    running.set(key,{controller,promise});promise.catch(()=>{}).finally(()=>running.delete(key))
@@ -78,13 +84,17 @@ export function createDatasetService({root=path.resolve(process.env.DATASET_STOR
    if([...sessions.values()].some(s=>s.name===name&&['ready','copying','uploading'].includes(s.status)))return send(res,409,{message:'已存在同名数据集。'})
    const manifest=validateFiles(input.files,maxBytes)
    const space=await fs.statfs(root);if(manifest.total>space.bavail*space.bsize)throw new Error('服务端可用磁盘空间不足。')
-   const session={id:'dataset-'+randomUUID(),name,format:['LeRobot','HDF5','Parquet','其他'].includes(input.format)?input.format:'待识别',description:String(input.description??'').slice(0,2000),status:'uploading',createdAt:new Date().toISOString(),...manifest}
+   const session={id:'dataset-'+randomUUID(),name,project:datasetProjects.includes(input.project)?input.project:'未分类',format:datasetFormats.includes(input.format)?input.format:'待识别',description:String(input.description??'').slice(0,2000),status:'uploading',createdAt:new Date().toISOString(),...manifest}
    await fs.mkdir(path.join(dir(session.id),'.parts'),{recursive:true});sessions.set(session.id,session);await persist(session);return send(res,201,view(session))
   }
   if(!s)return send(res,404,{message:'上传记录不存在。'})
   if(req.method==='POST'&&indexOrAction==='cancel'){
    if(s.status==='ready')return send(res,409,{message:'已完成的数据集不能作为未完成上传取消。'})
    s.status='cancelled';await persist(s);const tasks=[...running.entries()].filter(([key])=>key.startsWith(s.id+':')).map(([,v])=>v);tasks.forEach(v=>v.controller.abort());await Promise.allSettled(tasks.map(v=>v.promise));await fs.rm(path.join(dir(id),'files'),{recursive:true,force:true});await fs.rm(path.join(dir(id),'.parts'),{recursive:true,force:true});return send(res,200,view(s))
+  }
+  if(req.method==='POST'&&indexOrAction==='metadata'){
+   const input=await readJson(req);if(s.status!=='ready'||!datasetProjects.includes(input.project)||!datasetFormats.includes(input.format))throw new Error('分类或格式无效。')
+   s.project=input.project;s.format=input.format;await persist(s);return send(res,200,view(s))
   }
   if(s.status!=='uploading')return send(res,409,{message:'该上传会话不可写入。'})
   if(req.method==='PUT'&&/^\d+$/.test(indexOrAction??'')){
