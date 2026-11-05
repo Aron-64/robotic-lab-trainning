@@ -17,14 +17,52 @@ export function parseVisibleGpus(output, env = {}) {
  }
  return devices.map((d,index)=>({index,name:d.name}))
 }
-export async function detectGpus() {
+export function parseVisibleXpus(output, env = {}) {
+ if(/\b(?:VXPU|SR-IOV.*Enabled|Virtual Function)\b/i.test(output))throw new Error('当前为虚拟 XPU 环境，请接入平台分配资源接口。')
+ const devices=[]
+ // Read device identity rows only, never utilization or process rows.
+ for(const line of output.split(/\r?\n/)){
+  const match=line.match(/^\s*\|\s*(\d+)\s+(P800(?:[ -]+(?:OAM|PCIe))?)\s+(?:N\/A|On|Off)\s*\|/i)
+  if(match)devices.push({index:Number(match[1]),name:match[2].trim()})
+ }
+ if(!devices.length){if(/no (?:XPU )?devices (?:were )?found/i.test(output))return [];throw new Error('无法解析 xpu-smi 的 P800 设备表，请检查驱动版本和命令输出。')}
+ if(new Set(devices.map(d=>d.index)).size!==devices.length)throw new Error('xpu-smi 返回重复设备编号。')
+ let visible=devices
+ for(const key of ['XPU_VISIBLE_DEVICES','CXPU_VISIBLE_DEVICES']){
+  const value=env[key]?.trim();if(value===undefined||value==='all')continue
+  if(['','none','void','-1'].includes(value)){visible=[];continue}
+  const ids=value.split(',').map(v=>v.trim())
+  if(ids.some(id=>!/^\d+$/.test(id))||new Set(ids).size!==ids.length)throw new Error(`${key} 必须是无重复的设备编号列表。`)
+  const selected=ids.map(id=>visible.find(d=>d.index===Number(id)))
+  if(selected.some(d=>!d))throw new Error(`${key} 与 xpu-smi 设备编号不一致，请检查容器资源配置。`)
+  visible=selected
+ }
+ return visible.map((device,index)=>({index,physicalIndex:device.index,name:device.name}))
+}
+export async function detectGpus({run=execute,env=process.env} = {}) {
+ let source='xpu-smi'
+ const options={timeout:5000,maxBuffer:1024*128,windowsHide:true,env:{...env,LC_ALL:'C',LANG:'C'}}
  try {
-  const {stdout}=await execute('nvidia-smi',['--query-gpu=index,uuid,name','--format=csv,noheader'],{timeout:5000,maxBuffer:1024*128,windowsHide:true})
-  const devices=parseVisibleGpus(stdout,process.env)
-  return {status:'ok',count:devices.length,devices,source:'nvidia-smi',checkedAt:new Date().toISOString()}
+  const backend=env.ACCELERATOR_BACKEND||'auto'
+  if(!['auto','xpu','nvidia'].includes(backend))throw new Error('ACCELERATOR_BACKEND 仅支持 auto、xpu 或 nvidia。')
+  let devices
+  if(backend!=='nvidia'){
+   let output
+   try{output=await run('xpu-smi',[],options)}catch(error){
+    // Only a missing binary permits switching vendors; do not hide XPU driver failures.
+    if(error.code!=='ENOENT'||backend==='xpu'||env.XPU_VISIBLE_DEVICES!==undefined||env.CXPU_VISIBLE_DEVICES!==undefined)throw error
+   }
+   if(output)devices=parseVisibleXpus(output.stdout,env)
+  }
+  if(devices===undefined){
+   source='nvidia-smi'
+   const {stdout}=await run(source,['--query-gpu=index,uuid,name','--format=csv,noheader'],options)
+   devices=parseVisibleGpus(stdout,env)
+  }
+  return {status:'ok',count:devices.length,devices,source,checkedAt:new Date().toISOString()}
  } catch(error) {
-  const message=error.code==='ENOENT'?'容器未安装 nvidia-smi。':error.killed?'GPU 检测超时。':error.code?'无法连接 NVIDIA 驱动，请检查容器 GPU 挂载与驱动状态。':error.message
-  return {status:'unavailable',count:0,devices:[],source:'nvidia-smi',message,checkedAt:new Date().toISOString()}
+  const message=error.code==='ENOENT'?`容器未安装 ${source}，请检查工具安装及 PATH。`:error.killed?`${source} 检测超时。`:error.code?`${source} 执行失败，请检查设备挂载与驱动状态。`:error.message
+  return {status:'unavailable',count:0,devices:[],source,message,checkedAt:new Date().toISOString()}
  }
 }
 export async function gpuMiddleware(req,res,next) {

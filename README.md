@@ -1,6 +1,6 @@
 # Robotic Lab 训练管理平台
 
-完整前端预览（v0.2.0），训练任务、训练指标与 Checkpoint 下载为 **Demo / Mock**；模型导入、数据集上传及 GPU 数量检测为真实操作。不执行训练脚本；GPU 数量通过服务端只读 nvidia-smi 检测，训练指标仍为模拟。
+完整前端预览（v0.2.0），训练任务、训练指标与 Checkpoint 下载为 **Demo / Mock**；模型导入、数据集上传及 GPU 数量检测为真实操作。不执行训练脚本；GPU 数量通过服务端只读 xpu-smi / nvidia-smi 检测，训练指标仍为模拟。
 
 ## 本地开发
 
@@ -72,9 +72,9 @@ Vue 3、TypeScript、Vite、Pinia、Vue Router、ECharts、Lucide。统一自定
 
 ## 容器 GPU 资源检测
 
-训练页面请求 `GET /api/resources/gpus`，服务端执行固定参数的 `nvidia-smi`，并检查 `NVIDIA_VISIBLE_DEVICES` / `CUDA_VISIBLE_DEVICES` 的限制。返回 `status`、`count`、`devices`、`source`、`checkedAt`。检测失败或零 GPU 时禁用启动，不回退到虚构容量。启动前重新查询并校验数量，设备由模拟分配器自动选择。
+训练页面请求 `GET /api/resources/gpus`，服务端优先执行只读 `xpu-smi`，解析 P800 设备表，并检查 `XPU_VISIBLE_DEVICES` / `CXPU_VISIBLE_DEVICES` 的限制；工具不存在且没有 XPU 可见性配置时才回退到 `nvidia-smi`，检查 `NVIDIA_VISIBLE_DEVICES` / `CUDA_VISIBLE_DEVICES`。返回 `status`、`count`、`devices`、`source`、`checkedAt`。检测失败或零 GPU 时禁用启动，不回退到虚构容量。启动前重新查询并校验数量，设备由模拟分配器自动选择。
 
-`npm run dev` 和 `npm run preview` 已内置此只读接口。生产静态部署时浏览器不能直接执行 nvidia-smi：可在同一个 GPU 容器内运行 `npm run gpu-api`（默认监听 127.0.0.1:8001），由网关将 `/api/resources/gpus` 反向代理到该服务；或由未来 FastAPI 实现相同返回结构。服务必须运行在申请到 GPU 的容器内，不能运行在宿主机后向用户报告宿主机总卡数。检测失败、可见性配置不一致或 MIG 环境需要平台专用资源接口。没有实现训练后端、资源申请或云端部署。
+`npm run dev` 和 `npm run preview` 已内置此只读接口。生产静态部署时浏览器不能直接执行 xpu-smi / nvidia-smi：可在同一个 GPU 容器内运行 `npm run gpu-api`（默认监听 127.0.0.1:8001），由网关将 `/api/resources/gpus` 反向代理到该服务；或由未来 FastAPI 实现相同返回结构。服务必须运行在申请到 GPU 的容器内，不能运行在宿主机后向用户报告宿主机总卡数。检测失败、可见性配置不一致或 MIG 环境需要平台专用资源接口。没有实现训练后端、资源申请或云端部署。
 
 ## 真实模型导入
 
@@ -110,3 +110,13 @@ SDK 参考：[Hugging Face snapshot_download](https://huggingface.co/docs/huggin
 - 当前本地预览上传写入本地开发机；部署到云容器并配置云端数据目录后才写入云端。本次未操作云服务器。
 
 新建模型、新建训练、新建数据集均采用单列参数布局，每行一个配置项。
+
+### 数据集本地上传与云端上传
+
+新建数据集的“本地上传”保留浏览器文件和文件夹选择。“云端上传”接受运行后端的云容器内绝对路径（文件或文件夹），异步复制到 `managed-datasets/<id>/files`，不移动源文件、不解压，也不下载 HTTP/S3/OSS 链接。文件夹导入保留内部相对目录；空目录不登记。复制完成后自动加入数据集列表。进度按已完整复制文件的字节数更新；复制失败可取消清理后重试。刷新页面不会终止服务端复制，但当前页面不自动恢复未完成任务；服务重启会将中断任务标为失败。
+
+允许的云端源目录默认是 `/mnt/data`。可以在启动服务前设置 `DATASET_IMPORT_ROOTS=/mnt/data:/data/datasets`（Linux 冒号分隔），只配置专用数据目录。源路径须在允许目录内，不得与管理目录互相包含；子目录中的符号链接和特殊文件拒绝导入。数量、空间及大小限制与本地上传一致。服务需要源文件读取权限与目标目录写入权限，部署到云端后才能读取云端文件；生产环境仍需在反向代理层配置身份认证与访问控制。
+
+P800 容器建议设置 `ACCELERATOR_BACKEND=xpu` 后启动服务，例如 `ACCELERATOR_BACKEND=xpu npm run dev`；默认 `auto` 优先 XPU，也支持 `nvidia` 显式选择。`xpu-smi` 需在服务进程的 PATH 中。当前支持 P800 OAM/PCIe 常见设备表格式，未知格式返回检测错误，不猜测数量。编号必须与可见性变量一致，返回的 XPU 设备另附 `physicalIndex`。XPU 驱动故障不会回退到 NVIDIA。此功能只检测设备，不完成 P800 训练框架适配。
+
+数量反映容器可见且符合可见性变量的设备；不能从硬件工具单独推断云平台申请配额。平台必须正确隔离设备或注入可见性变量。虚拟卡及编号重映射需要对接平台资源接口。解析及回退已用模拟输出测试，尚未在实际 P800 容器验证。命令参考：[百度智能云 AIHC 文档](https://bce-cdn.bj.bcebos.com/p3m/pdf/bce-doc/online/AIHC/AIHC.pdf)。
