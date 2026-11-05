@@ -1,6 +1,11 @@
 export interface UploadedDataset {episodes?:number;project?:string;message?:string;id:string;name:string;format:string;description:string;status:string;path:string;total:number;fileCount:number;uploadedBytes:number;createdAt:string;files:{path:string;size:number;uploaded:boolean;sha256?:string}[]}
 const base=(import.meta.env.VITE_API_BASE_URL||'/api')+'/dataset-uploads'
-async function request<T>(url:string,body?:unknown):Promise<T>{const response=await fetch(url,body===undefined?{signal:AbortSignal.timeout(20000)}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(20000)});let data;try{data=await response.json()}catch{throw new Error('数据集上传服务不可用。')}if(!response.ok)throw new Error(data.message||'上传请求失败。');return data}
+async function request<T>(url:string,body?:unknown):Promise<T>{
+ const controller=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined
+ const work=async()=>{const response=await fetch(url,{method:body===undefined?'GET':'POST',...(body===undefined?{}:{headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),signal:controller.signal});let data;try{data=await response.json()}catch{throw new Error('数据集接口未返回 JSON，请检查云端 API 代理和服务。')}if(!response.ok)throw new Error(data.message||`数据集请求失败（${response.status}）。`);return data as T}
+ try{return await Promise.race([work(),new Promise<never>((_,reject)=>{timer=setTimeout(()=>{reject(new Error('数据集请求超过 20 秒，请检查云端服务、挂载盘及 API 代理；可重试。'));controller.abort()},20000)})])}finally{clearTimeout(timer)}
+}
+
 export const listUploadedDatasets=()=>request<{root:string;maxBytes:number;importRoots:string[];jobs:UploadedDataset[]}>(base)
 export const createDatasetUpload=(input:{name:string;format:string;project?:string;description:string;files:{path:string;size:number}[]})=>request<UploadedDataset>(base,input)
 export const getDatasetUpload=(id:string)=>request<UploadedDataset>(`${base}/${id}`)

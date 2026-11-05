@@ -1,3 +1,4 @@
+import {Worker} from 'node:worker_threads'
 import {promises as fs,createReadStream} from 'node:fs'
 import path from 'node:path'
 import {pipeline} from 'node:stream/promises'
@@ -73,7 +74,20 @@ export async function serveDatasetVideo(req,res,session,base,relative){
  try{await pipeline(createReadStream(target,range??{}),res)}catch(e){if(!res.destroyed)res.destroy(e)}
 }
 
-export function createVisualizationCache(inspect=inspectDataset,{ttl=300000,maxBytes=32*1024**2,maxEntries=12}={}){
+export function inspectDatasetIsolated(session,base,{timeout=12000}={}){
+ return new Promise(resolve=>{
+  let finished=false
+  const worker=new Worker(new URL('./dataset-inspection-worker.mjs',import.meta.url),{workerData:{session,base},resourceLimits:{maxOldGenerationSizeMb:256}})
+  const fallback=message=>{const files=session.files.filter(f=>f.uploaded).map(f=>({path:f.path,size:f.size}));return {info:null,version:session.format==='LeRobot'?'待识别':session.format,episodes:[],features:[],files,videos:files.filter(f=>/\.(mp4|webm|mov)$/i.test(f.path)),warnings:[`元数据解析失败：${message}。已切换到原始视频浏览，可直接选择视频播放。`]}}
+  const finish=result=>{if(finished)return;finished=true;clearTimeout(timer);void worker.terminate();resolve(result)}
+  const timer=setTimeout(()=>finish(fallback('索引读取超过 12 秒，请检查云端挂载盘和元数据文件')),timeout)
+  worker.once('message',message=>finish(message.result??fallback(message.error||'解析失败')))
+  worker.once('error',error=>finish(fallback(error.message)))
+  worker.once('exit',code=>{if(!finished)finish(fallback(`解析进程退出（${code}）`))})
+ })
+}
+
+export function createVisualizationCache(inspect=inspectDatasetIsolated,{ttl=300000,maxBytes=32*1024**2,maxEntries=12}={}){
  const cache=new Map();let bytes=0
  function invalidate(id){const old=cache.get(id);if(old){bytes-=old.bytes;cache.delete(id)}}
  async function get(session,base){

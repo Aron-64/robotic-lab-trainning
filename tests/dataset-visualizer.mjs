@@ -47,3 +47,11 @@ let evictions=0
 const small=createVisualizationCache(async()=>{evictions++;return {warnings:[]}},{maxEntries:1})
 await small.get({id:'a'},'');await small.get({id:'b'},'');await small.get({id:'a'},'');assert.equal(evictions,3)
 console.log('PASS: concurrent visualization requests share parsing; cache hits, invalidation, failure retry and LRU bounds')
+
+const {inspectDatasetIsolated}=await import('../server/dataset-visualizer.mjs')
+const emptySession={id:'worker-test',format:'LeRobot v3.0',files:[{path:'videos/test.mp4',uploaded:true,size:10}]}
+const isolated=await inspectDatasetIsolated(emptySession,'/unused')
+assert.equal(isolated.videos.length,1);assert.match(isolated.warnings[0],/meta\/info/)
+const timed=await inspectDatasetIsolated(emptySession,'/unused',{timeout:1})
+assert.equal(timed.videos.length,1);assert.match(timed.warnings[0],/超过/)
+console.log('PASS: isolated parser and hard deadline preserve raw video access')
