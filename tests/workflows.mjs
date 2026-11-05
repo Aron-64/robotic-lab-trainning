@@ -46,6 +46,14 @@ try {
  for(let i=0;i<4;i++)advanceJob(odd)
  assert.equal(odd.step,333)
  console.log('PASS: validation, pending/running/completed, pause, stop/failure, checkpoint/resume, persistence/reset')
+ const {resolveWeights}=await vite.ssrLoadModule('/src/mocks/weightSelection.ts')
+ const weightModel={weights:'/base',weightMode:'checkpoints',importedCheckpoints:[{name:'10',step:10,path:'/weights/10',format:'pytorch',complete:true,resumable:false},{name:'20',step:20,path:'/weights/20',format:'pytorch',complete:true,resumable:true},{name:'30',step:30,path:'/weights/30',format:'jax',complete:true,resumable:true}]}
+ const weightConfig={weightUsage:'resume',weightSelection:'latest',steps:100,resume:''}
+ resolveWeights(weightModel,weightConfig);assert.equal(weightConfig.resolvedWeightPath,'/weights/20')
+ assert.throws(()=>resolveWeights(weightModel,{...weightConfig,weightSelection:'10'}))
+ assert.throws(()=>resolveWeights(weightModel,{...weightConfig,weightSelection:'30'}))
+ const fineTune={...weightConfig,weightUsage:'checkpoint',weightSelection:'10'};resolveWeights(weightModel,fineTune);assert.equal(fineTune.resolvedWeightPath,'/weights/10')
+ console.log('PASS: pinned latest PyTorch checkpoint, resume-state requirement, JAX rejection, weights-only fine tuning')
  // Server-render each route with its real Pinia store and router to catch setup/template failures.
  const {createSSRApp}=await import('vue')
  const {renderToString}=await import('@vue/server-renderer')

@@ -1,6 +1,7 @@
 import type { Job, LossPoint, TrainingConfig } from '../types'
 export function validateConfig(c:TrainingConfig, gpuLimit?:number):string[] {
  const errors:string[]=[]
+ if(c.keepLast!==undefined&&c.keepLast!==null&&(!Number.isInteger(c.keepLast)||c.keepLast<1||c.keepLast>1000))errors.push('Checkpoint 保留数量应为 1～1000。')
  if(!c.name.trim())errors.push('请输入训练任务名称。')
  if(!c.model||!c.dataset||!c.environment.trim())errors.push('请选择模型、数据集和 Python 环境。')
  if(!Number.isInteger(c.steps)||c.steps<100||c.steps>1000000)errors.push('训练步数应为 100～1,000,000 的整数。')

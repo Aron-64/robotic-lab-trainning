@@ -34,5 +34,21 @@ try{
  await rm(path.join(code,'unsafe'))
  await importModel(job,async(j,c,args)=>{j.cancelRequested=true;return executor(j,c,args)});assert.equal(job.status,'cancelled')
  assert.equal(await readFile(path.join(code,'train.py'),'utf8'),'print("hello")')
+ const experiment=path.join(code,'checkpoints','experiment')
+ for(const step of ['1000','2000']){await mkdir(path.join(experiment,step),{recursive:true});await writeFile(path.join(experiment,step,'model.safetensors'),'weights')}
+ await writeFile(path.join(experiment,'2000','optimizer.pt'),'optimizer');await writeFile(path.join(experiment,'2000','metadata.pt'),'metadata')
+ await mkdir(path.join(code,'wandb'));await symlink('/does/not/exist',path.join(code,'wandb','latest-run'))
+ const {scanCheckpoints}=await import('../server/checkpoint-catalog.mjs')
+ const scanned=await scanCheckpoints(experiment);assert.equal(scanned.length,2);assert.equal(scanned[0].resumable,false);assert.equal(scanned[1].resumable,true)
+ const transferred={...await validateTransfer({...input,sourceWeights:experiment,weightMode:'checkpoints',selectedCheckpoints:['2000']},root),id:'model-selected',logs:[],paths:{}}
+ await mkdir(path.join(root,transferred.id));calls=[]
+ await importModel(transferred,async(j,cmd,args)=>{calls.push(args);return JSON.stringify({prefix:env,python:'3.11',torch:'2.6',pip:false})})
+ assert.equal(transferred.status,'ready',transferred.error);assert.ok(!calls.some(args=>args.includes('pip')))
+ assert.equal(transferred.importedCheckpoints.length,1);assert.match(transferred.environmentCheck,/未安装 pip/)
+ assert.equal(await stat(path.join(transferred.paths.code,'checkpoints')).catch(()=>null),null)
+ assert.equal(await stat(path.join(transferred.paths.code,'wandb')).catch(()=>null),null)
+ assert.equal(await stat(path.join(transferred.paths.weights,'1000')).catch(()=>null),null)
+ assert.equal(await readFile(path.join(transferred.paths.weights,'2000','model.safetensors'),'utf8'),'weights')
+ await assert.rejects(validateTransfer({...input,weightMode:'checkpoints',selectedCheckpoints:['../escape']},root))
  console.log('PASS: model transfer real file copies, env exclusion/reuse, retry, allowed roots, symlink rejection, environment failures and cancellation (Python executor fixture)')
 }finally{await rm(temp,{recursive:true,force:true})}

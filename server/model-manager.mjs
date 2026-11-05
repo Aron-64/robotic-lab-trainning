@@ -1,3 +1,4 @@
+import {scanCheckpoints} from './checkpoint-catalog.mjs'
 import { spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
@@ -63,6 +64,7 @@ export async function modelManagerMiddleware(req,res,next){const pathname=req.ur
  const address=req.socket?.remoteAddress
  if(address&&!['127.0.0.1','::1','::ffff:127.0.0.1'].includes(address))return send(res,403,{message:'模型导入仅允许本地访问，请使用 localhost 或 SSH 端口转发；云端需通过已鉴权的本地网关访问。'})
  if(!req.headers.origin||new URL(req.headers.origin).host!==req.headers.host||req.headers['content-type']?.split(';')[0]!=='application/json')return send(res,403,{message:'仅接受同源页面提交的 JSON 请求。'})
+ if(req.method==='POST'&&pathname==='/api/model-imports/scan-checkpoints'){const config=await validateTransfer({...await body(req),weightMode:'checkpoints'},root);return send(res,200,{checkpoints:await scanCheckpoints(config.sourceWeights)})}
  if(req.method==='POST'&&pathname==='/api/model-imports'){
   if(active)return send(res,409,{message:'已有导入正在运行，请等待或取消后再创建。'})
   const input=await body(req);const config=input.mode==='transfer'?await validateTransfer(input,root):validateImport(input);if([...jobs.values()].some(j=>j.name===config.name))return send(res,409,{message:'模型名称已存在，请使用不同名称。'});const id='model-'+randomUUID();const job={...config,id,status:'queued',createdAt:new Date().toISOString(),logs:[],error:'',paths:{root:path.join(root,id)},plan:null}
