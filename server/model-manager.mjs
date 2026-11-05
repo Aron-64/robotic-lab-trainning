@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
+import {validateTransfer,transferModel} from './model-transfer.mjs'
 import { validateImport, readmePlan } from './model-import-policy.mjs'
 const root=path.resolve(process.env.MODEL_STORAGE_ROOT||path.join(process.cwd(),'managed-models'))
 const helper=fileURLToPath(new URL('./download-weights.py',import.meta.url))
@@ -19,6 +20,7 @@ function run(job,command,args,options={}){return new Promise((resolve,reject)=>{
 function kill(child){try{if(process.platform==='win32')child.kill('SIGTERM');else process.kill(-child.pid,'SIGTERM')}catch{};const timer=setTimeout(()=>{try{if(process.platform==='win32')child.kill('SIGKILL');else process.kill(-child.pid,'SIGKILL')}catch{}},3000);timer.unref()}
 async function phase(job,status,label){if(job.cancelRequested)throw new Error('已取消');job.status=status;log(job,label);await persist(job)}
 export async function importModel(job,executor=run){active=job.id;job.cancelRequested=false;job.error='';try{
+ if(job.mode==='transfer'){await transferModel(job,{root,executor,phase,log});return}
  const base=path.join(root,job.id),code=path.join(base,'code'),weights=path.join(base,'weights'),venv=path.join(base,'.venv')
  job.paths={root:base,code,weights,environment:venv,python:pythonPath(venv)}
  await phase(job,'cloning','拉取 GitHub 代码仓库')
@@ -57,13 +59,13 @@ export async function modelManagerMiddleware(req,res,next){const pathname=req.ur
  await init()
  if(req.method==='GET'&&pathname==='/api/model-imports'){return send(res,200,{root,jobs:[...jobs.values()].sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(publicJob)})}
  if(req.method==='GET'){const id=pathname.split('/')[3];const job=jobs.get(id);return job?send(res,200,publicJob(job)):send(res,404,{message:'导入记录不存在。'})}
- // Mutations require a same-origin browser request. No arbitrary command/path is accepted.
+ // Mutations require a same-origin browser request. Transfer paths are restricted to configured source roots.
  const address=req.socket?.remoteAddress
  if(address&&!['127.0.0.1','::1','::ffff:127.0.0.1'].includes(address))return send(res,403,{message:'模型导入仅允许本地访问，请使用 localhost 或 SSH 端口转发；云端需通过已鉴权的本地网关访问。'})
  if(!req.headers.origin||new URL(req.headers.origin).host!==req.headers.host||req.headers['content-type']?.split(';')[0]!=='application/json')return send(res,403,{message:'仅接受同源页面提交的 JSON 请求。'})
  if(req.method==='POST'&&pathname==='/api/model-imports'){
   if(active)return send(res,409,{message:'已有导入正在运行，请等待或取消后再创建。'})
-  const config=validateImport(await body(req));if([...jobs.values()].some(j=>j.name===config.name))return send(res,409,{message:'模型名称已存在，请使用不同名称。'});const id='model-'+randomUUID();const job={...config,id,status:'queued',createdAt:new Date().toISOString(),logs:[],error:'',paths:{root:path.join(root,id)},plan:null}
+  const input=await body(req);const config=input.mode==='transfer'?await validateTransfer(input,root):validateImport(input);if([...jobs.values()].some(j=>j.name===config.name))return send(res,409,{message:'模型名称已存在，请使用不同名称。'});const id='model-'+randomUUID();const job={...config,id,status:'queued',createdAt:new Date().toISOString(),logs:[],error:'',paths:{root:path.join(root,id)},plan:null}
   active=id;try{await fs.mkdir(path.join(root,id))}catch(e){active=null;throw e}jobs.set(id,job);await persist(job);void importModel(job);return send(res,202,publicJob(job))
  }
  const [, , ,id,action]=pathname.split('/');const job=jobs.get(id)

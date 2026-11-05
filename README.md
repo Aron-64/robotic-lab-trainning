@@ -120,3 +120,11 @@ SDK 参考：[Hugging Face snapshot_download](https://huggingface.co/docs/huggin
 P800 容器建议设置 `ACCELERATOR_BACKEND=xpu` 后启动服务，例如 `ACCELERATOR_BACKEND=xpu npm run dev`；默认 `auto` 优先 XPU，也支持 `nvidia` 显式选择。`xpu-smi` 需在服务进程的 PATH 中。当前支持 P800 OAM/PCIe 常见设备表格式，未知格式返回检测错误，不猜测数量。编号必须与可见性变量一致，返回的 XPU 设备另附 `physicalIndex`。XPU 驱动故障不会回退到 NVIDIA。此功能只检测设备，不完成 P800 训练框架适配。
 
 数量反映容器可见且符合可见性变量的设备；不能从硬件工具单独推断云平台申请配额。平台必须正确隔离设备或注入可见性变量。虚拟卡及编号重映射需要对接平台资源接口。解析及回退已用模拟输出测试，尚未在实际 P800 容器验证。命令参考：[百度智能云 AIHC 文档](https://bce-cdn.bj.bcebos.com/p3m/pdf/bce-doc/online/AIHC/AIHC.pdf)。
+
+### 转移已有模型（复用 env 路径）
+
+“新建模型”可选择“增加模型”或“转移模型”。转移需要云容器内代码目录、权重目录、已有环境目录的绝对路径。服务先执行原 `env/bin/python -m pip check` 并探测 Python/PyTorch 包元数据、核对 `sys.prefix`，之后异步复制代码及权重到独立管理目录。原环境不复制、不安装依赖，原代码和权重不删除；位于代码/权重内部的原 env 目录会排除复制。支持阶段、文件/字节进度、日志、取消和重试。取消或失败保留本次部分副本；重试重新构建本次副本，不动源数据。
+
+默认仅允许 `/mnt/data` 下的源目录；额外路径可设置 `MODEL_TRANSFER_ROOTS=/mnt/data:/data/models`（Linux 冒号分隔），环境也必须在允许范围内。源目录不得与管理目录互相包含。仅支持普通文件/目录；符号链接会报错，需要先准备普通文件副本。环境的 bin/python 可使用 venv 常见的解释器链接。请使用可信环境，校验会执行环境内 Python；此检查不保证训练入口、XPU 库或完整模型兼容性。已有 editable 安装可能继续引用原代码，必须保留原代码和 env；服务不会自动重写依赖。
+
+继承原模型导入接口的同源及本地访问限制，云端通过已鉴权本地网关或 SSH 端口转发使用。文件复制已通过临时目录测试，Python 检查使用模拟执行器，尚未在实际云端环境验证。

@@ -7,7 +7,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "node tests/gpu-resources.mjs && node tests/model-imports.mjs && node tests/dataset-uploads.mjs && node tests/workflows.mjs",
+    "test": "node tests/gpu-resources.mjs && node tests/model-imports.mjs && node tests/model-transfer.mjs && node tests/dataset-uploads.mjs && node tests/workflows.mjs",
     "gpu-api": "node server/gpu-resources.mjs",
     "model-api": "node server/model-service.mjs"
   },
