@@ -33,3 +33,17 @@ try{
  session.files=session.files.filter(f=>!f.path.endsWith('info.json'));assert.ok((await inspectDataset(session,root)).warnings.length)
  console.log('PASS: v2.1 wrapped roots, real v3.0 Parquet index/shared video offsets, tasks, Range/HEAD streaming, invalid ranges, path and symlink protection, raw fallback')
 }finally{await rm(root,{recursive:true,force:true})}
+
+const {createVisualizationCache}=await import('../server/dataset-visualizer.mjs')
+let reads=0
+const cached=createVisualizationCache(async()=>{reads++;return {warnings:[],episodes:[{index:0}]}})
+await Promise.all([cached.get({id:'a'},'/unused'),cached.get({id:'a'},'/unused')])
+await cached.get({id:'a'},'/unused');assert.equal(reads,1)
+cached.invalidate('a');await cached.get({id:'a'},'/unused');assert.equal(reads,2)
+let attempts=0
+const flaky=createVisualizationCache(async()=>{if(++attempts===1)throw new Error('temporary');return {warnings:[]}})
+await assert.rejects(flaky.get({id:'a'},'/unused'));await flaky.get({id:'a'},'/unused');assert.equal(attempts,2)
+let evictions=0
+const small=createVisualizationCache(async()=>{evictions++;return {warnings:[]}},{maxEntries:1})
+await small.get({id:'a'},'');await small.get({id:'b'},'');await small.get({id:'a'},'');assert.equal(evictions,3)
+console.log('PASS: concurrent visualization requests share parsing; cache hits, invalidation, failure retry and LRU bounds')

@@ -29,7 +29,10 @@ export async function inspectDataset(session,base){
    const indexes=files.filter(f=>f.path.startsWith(prefix+'meta/episodes/')&&f.path.endsWith('.parquet')).sort((a,b)=>a.path.localeCompare(b.path))
    if(!indexes.length)throw new Error('缺少 v3.0 的 meta/episodes Parquet 索引。')
    for(const entry of indexes){
-    const file=await asyncBufferFromFile(await safeDatasetFile(base,entry.path)),meta=await parquetMetadataAsync(file)
+    const target=await safeDatasetFile(base,entry.path),size=(await fs.stat(target)).size
+    // Network mounts penalize the many small footer/column reads. Read small indexes once.
+    const bytes=size<=32*1024**2?await fs.readFile(target):null
+    const file=bytes?bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength):await asyncBufferFromFile(target),meta=await parquetMetadataAsync(file)
     const columns=parquetSchema(meta).children.map(e=>e.element.name).filter(key=>['episode_index','length','tasks'].includes(key)||key.startsWith('videos/'));
     const remaining=10000-rows.length;if(remaining<=0){warnings.push('Episode 索引仅展示前 10,000 条。');break}
     rows.push(...await parquetReadObjects({file,compressors,columns,rowEnd:Math.min(Number(meta.num_rows),remaining)}))
@@ -68,4 +71,26 @@ export async function serveDatasetVideo(req,res,session,base,relative){
  if(range)headers['Content-Range']=`bytes ${range.start}-${range.end}/${size}`
  res.writeHead(range?206:200,headers);if(req.method==='HEAD'||!size){res.end();return}
  try{await pipeline(createReadStream(target,range??{}),res)}catch(e){if(!res.destroyed)res.destroy(e)}
+}
+
+export function createVisualizationCache(inspect=inspectDataset,{ttl=300000,maxBytes=32*1024**2,maxEntries=12}={}){
+ const cache=new Map();let bytes=0
+ function invalidate(id){const old=cache.get(id);if(old){bytes-=old.bytes;cache.delete(id)}}
+ async function get(session,base){
+  const old=cache.get(session.id)
+  if(old&&Date.now()<old.expires){cache.delete(session.id);cache.set(session.id,old);return old.promise}
+  invalidate(session.id)
+  const entry={bytes:0,expires:Date.now()+ttl,promise:null}
+  entry.promise=Promise.resolve().then(()=>inspect(session,base)).then(result=>{
+   if(cache.get(session.id)!==entry)return result
+   entry.bytes=Buffer.byteLength(JSON.stringify(result));bytes+=entry.bytes
+   if(result.warnings.some(w=>w.startsWith('元数据解析失败')))invalidate(session.id)
+   while(bytes>maxBytes||cache.size>maxEntries)invalidate(cache.keys().next().value)
+   return result
+  }).catch(error=>{if(cache.get(session.id)===entry)invalidate(session.id);throw error})
+  cache.set(session.id,entry)
+  while(cache.size>maxEntries)invalidate(cache.keys().next().value)
+  return entry.promise
+ }
+ return {get,invalidate}
 }
