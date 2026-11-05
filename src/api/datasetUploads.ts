@@ -12,7 +12,7 @@ export function formatBytes(n:number){if(n<1024)return `${n} B`;if(n<1024**2)ret
 export const createCloudDataset=(input:{name:string;format:string;project?:string;description:string;sourcePath:string})=>request<UploadedDataset>(`${base}/cloud`,input)
 
 export const datasetProjects=['未分类','Franka','Openarm','宇树G1','仿真','其他']
-export const datasetFormats=['LeRobot v2.1','LeRobot v3.0','LeRobot','HDF5','Parquet','其他']
+export const datasetFormats=['LeRobot v2.1','LeRobot v3.0','HDF5','Parquet','其他']
 export const updateDatasetMetadata=(id:string,project:string,format:string)=>request<UploadedDataset>(`${base}/${id}/metadata`,{project,format})
 export interface DatasetVideo {camera:string;path:string;start:number;end:number}
 export interface DatasetEpisode {index:number;length:number;tasks:string[];videos:DatasetVideo[]}

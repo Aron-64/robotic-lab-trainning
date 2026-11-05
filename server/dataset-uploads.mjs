@@ -16,7 +16,7 @@ export function createDatasetService({root=path.resolve(process.env.DATASET_STOR
  const dir=id=>path.join(root,id)
  async function persist(s){const target=path.join(dir(s.id),'dataset.json'),temp=target+'.'+randomUUID()+'.tmp';await fs.writeFile(temp,JSON.stringify(s,null,2));await fs.rename(temp,target)}
  async function init(){if(!ready)ready=(async()=>{await fs.mkdir(root,{recursive:true});for(const d of await fs.readdir(root,{withFileTypes:true})){if(!d.isDirectory()||!/^dataset-[a-f0-9-]+$/.test(d.name))continue;try{const s=JSON.parse(await fs.readFile(path.join(root,d.name,'dataset.json'),'utf8'));if(s.id===d.name){if(s.status==='copying'){s.status='failed';s.message='服务重启，复制中断，请取消并重新导入。'}sessions.set(s.id,s)}}catch{}}})();await ready}
- function view(s){return {...s,path:path.join(dir(s.id),'files'),fileCount:s.files.length,uploadedBytes:s.files.reduce((n,f)=>n+(f.uploaded?f.size:0),0)}}
+ function view(s){return {...s,format:s.format==='LeRobot'?'待识别':s.format,path:path.join(dir(s.id),'files'),fileCount:s.files.length,uploadedBytes:s.files.reduce((n,f)=>n+(f.uploaded?f.size:0),0)}}
  function send(res,code,data){res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data))}
  async function readJson(req){let body='';for await(const chunk of req){body+=chunk;if(Buffer.byteLength(body)>2*1024**2)throw new Error('文件清单过大。')}return JSON.parse(body)}
  const inside=(base,target)=>target===base||target.startsWith(base+path.sep)
@@ -93,7 +93,7 @@ export function createDatasetService({root=path.resolve(process.env.DATASET_STOR
    s.status='cancelled';await persist(s);const tasks=[...running.entries()].filter(([key])=>key.startsWith(s.id+':')).map(([,v])=>v);tasks.forEach(v=>v.controller.abort());await Promise.allSettled(tasks.map(v=>v.promise));await fs.rm(path.join(dir(id),'files'),{recursive:true,force:true});await fs.rm(path.join(dir(id),'.parts'),{recursive:true,force:true});return send(res,200,view(s))
   }
   if(req.method==='POST'&&indexOrAction==='metadata'){
-   const input=await readJson(req);if(s.status!=='ready'||!datasetProjects.includes(input.project)||!datasetFormats.includes(input.format))throw new Error('分类或格式无效。')
+   const input=await readJson(req);if(s.status!=='ready'||!datasetProjects.includes(input.project)||![...datasetFormats,'待识别'].includes(input.format))throw new Error('分类或格式无效。')
    s.project=input.project;s.format=input.format;visualizations.invalidate(s.id);await persist(s);return send(res,200,view(s))
   }
   if(s.status!=='uploading')return send(res,409,{message:'该上传会话不可写入。'})

@@ -4,7 +4,7 @@ import {pipeline} from 'node:stream/promises'
 import {asyncBufferFromFile,parquetReadObjects,parquetMetadataAsync,parquetSchema} from 'hyparquet'
 import {compressors} from 'hyparquet-compressors'
 export const datasetProjects=['未分类','Franka','Openarm','宇树G1','仿真','其他']
-export const datasetFormats=['LeRobot','LeRobot v2.1','LeRobot v3.0','HDF5','Parquet','其他']
+export const datasetFormats=['LeRobot v2.1','LeRobot v3.0','HDF5','Parquet','其他']
 export async function safeDatasetFile(base,relative){
  if(!relative||relative.includes('\\')||path.isAbsolute(relative)||relative.split('/').some(p=>!p||p==='.'||p==='..'))throw new Error('文件路径无效。')
  const realBase=await fs.realpath(base),target=await fs.realpath(path.join(base,relative))
@@ -17,7 +17,7 @@ export async function inspectDataset(session,base){
  const files=session.files.filter(f=>f.uploaded).map(f=>({path:f.path,size:f.size})),warnings=[]
  const infos=files.filter(f=>/(^|\/)meta\/info.json$/.test(f.path))
  const videos=files.filter(f=>/\.(mp4|webm|mov)$/i.test(f.path))
- const result={info:null,version:session.format,episodes:[],videos,files,warnings,features:[],rootPrefix:''}
+ const result={info:null,version:session.format==='LeRobot'?'待识别':session.format,episodes:[],videos,files,warnings,features:[],rootPrefix:''}
  if(infos.length!==1){warnings.push(infos.length?'包含多个数据集根目录，请分别导入以解析 Episode。':'未找到 meta/info.json；可直接选择视频文件预览。');return result}
  const prefix=infos[0].path.slice(0,-'meta/info.json'.length);result.rootPrefix=prefix
  try{
