@@ -2,6 +2,9 @@ import type { RouteRecordRaw } from 'vue-router'
 import Overview from '../views/Overview.vue'
 export const routes:RouteRecordRaw[]=[
  {path:'/',name:'Overview',component:Overview,meta:{title:'总览',section:'Overview'}},
+ {path:'/training/real',name:'RealTraining',component:()=>import('../views/RealTraining.vue'),meta:{title:'真实训练',section:'Training'}},
+ {path:'/real-jobs',name:'RealJobs',component:()=>import('../views/RealJobs.vue'),meta:{title:'真实任务',section:'Jobs'}},
+ {path:'/real-jobs/:id',name:'RealJobDetail',component:()=>import('../views/RealJobDetail.vue'),meta:{title:'真实任务监控',section:'Jobs'}},
  {path:'/training',name:'Training',component:()=>import('../views/NewTraining.vue'),meta:{title:'新建训练',section:'Training'}},
  {path:'/jobs',name:'Jobs',component:()=>import('../views/Jobs.vue'),meta:{title:'训练任务',section:'Jobs'}},
  {path:'/jobs/:id',name:'JobDetail',component:()=>import('../views/JobDetail.vue'),meta:{title:'任务监控',section:'Jobs'}},

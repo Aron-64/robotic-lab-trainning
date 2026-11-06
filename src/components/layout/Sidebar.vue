@@ -13,14 +13,14 @@ const groups = [
  { label: '工作空间', items: [{ name: 'Overview', label: '总览', icon: LayoutDashboard }, { name: 'Training', label: '模型训练', icon: FlaskConical }, { name: 'Jobs', label: '训练任务', icon: ListTodo }] },
  { label: '资源管理', items: [{ name: 'Models', label: '模型管理', icon: Box }, { name: 'Datasets', label: '数据集', icon: Database }, { name: 'Checkpoints', label: 'Checkpoints', icon: Layers }] }
 ]
-function navigate(name:string) { emit('close'); router.push({name}) }
+function navigate(name:string) { emit('close'); router.push({name:name==='Training'?'RealTraining':name==='Jobs'?'RealJobs':name}) }
 </script>
 <template>
 <aside class="refined-sidebar" :class="{ open }" aria-label="主导航">
  <div class="sidebar-brand-row"><a class="sidebar-brand" href="#/" @click="emit('close')"><img class="brand-image" :src="store.dark ? logoDark : logoLight" alt="Robotic Lab" width="236" height="52"/></a><button class="sidebar-close" aria-label="关闭导航" @click="emit('close')"><X :size="18"/></button></div>
 
- <div class="sidebar-navigation"><nav v-for="group in groups" :key="group.label" :aria-label="group.label" class="navigation-group"><div class="navigation-label">{{group.label}}</div><button v-for="item in group.items" :key="item.name" :class="['navigation-item',{selected:item.name===route.meta.section}]" :aria-current="item.name===route.meta.section?'page':undefined" @click="navigate(item.name)"><component :is="item.icon" :size="17" :stroke-width="1.65"/><span>{{item.label}}</span><span v-if="item.name==='Jobs'" class="running-count">{{store.jobs.filter(job=>job.status==='Running').length}}</span><ChevronRight v-else-if="item.name===route.meta.section" :size="13" class="selected-chevron"/></button></nav><div class="sidebar-separator"></div><button :class="['navigation-item','settings-item',{selected:route.meta.section==='Settings'}]" @click="navigate('Settings')"><Settings :size="17" :stroke-width="1.65"/><span>设置</span></button></div>
- <div class="sidebar-lower"><ErrorNotice/><div class="sidebar-profile"><span class="profile-avatar">RC<i></i></span><div><strong>研究员</strong><span>个人工作空间</span></div><span class="profile-local" title="本地演示环境">本地</span></div><div class="sidebar-version"><span><i></i>前端预览</span><span>v0.2.0</span></div></div>
+ <div class="sidebar-navigation"><nav v-for="group in groups" :key="group.label" :aria-label="group.label" class="navigation-group"><div class="navigation-label">{{group.label}}</div><button v-for="item in group.items" :key="item.name" :class="['navigation-item',{selected:item.name===route.meta.section}]" :aria-current="item.name===route.meta.section?'page':undefined" @click="navigate(item.name)"><component :is="item.icon" :size="17" :stroke-width="1.65"/><span>{{item.label}}</span><ChevronRight v-if="item.name===route.meta.section" :size="13" class="selected-chevron"/></button></nav><div class="sidebar-separator"></div><button :class="['navigation-item','settings-item',{selected:route.meta.section==='Settings'}]" @click="navigate('Settings')"><Settings :size="17" :stroke-width="1.65"/><span>设置</span></button></div>
+ <div class="sidebar-lower"><ErrorNotice/><div class="sidebar-profile"><span class="profile-avatar">RC<i></i></span><div><strong>研究员</strong><span>个人工作空间</span></div><span class="profile-local" title="本地演示环境">本地</span></div><div class="sidebar-version"><span><i></i>训练工作空间</span><span>v0.2.0</span></div></div>
 </aside>
 </template>
 <style scoped>

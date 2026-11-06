@@ -12,4 +12,4 @@ onMounted(()=>{chart=echarts.init(el.value);chart.setOption(props.option);observ
 watch(()=>props.option,v=>chart?.setOption(v,true),{deep:true})
 onBeforeUnmount(()=>{observer?.disconnect();chart?.dispose()})
 </script>
-<template><div ref="el" class="metric-chart" role="img" aria-label="Demo 训练数据图表"></div></template>
+<template><div ref="el" class="metric-chart" role="img" aria-label="训练数据图表"></div></template>

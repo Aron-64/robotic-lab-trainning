@@ -12,3 +12,5 @@ managed-datasets/
 !.env.example
 *.log
 .DS_Store
+
+managed-training/

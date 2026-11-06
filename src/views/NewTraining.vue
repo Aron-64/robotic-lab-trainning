@@ -26,7 +26,7 @@ const command=computed(()=>`# Mock 命令示意，不执行\ncd ${quote(selected
 async function launch(){if(launching.value)return;launching.value=true;errors.value=[];try{if(!await refreshResources(false)){errors.value=['无法确认容器 GPU 资源，暂不能创建任务。'];return}config.gpuDevices=Array.from({length:gpuCount.value},(_,i)=>i);errors.value=validateConfig(config,gpuLimit.value);if(errors.value.length)return;resolveWeights(selectedModel.value,config);const id=store.launch(JSON.parse(JSON.stringify(config)),gpuLimit.value);await router.push(`/jobs/${id}`)}catch(e){errors.value=[e instanceof Error?e.message:'创建任务失败。']}finally{launching.value=false}}
 </script>
 <template>
-<PageHeading title="新建训练" description="选择模型与数据，填写参数后直接启动。"/>
+<PageHeading title="新建训练" description="选择模型与数据，填写参数后直接启动。"><button class="button primary" @click="router.push('/training/real')">OpenPI 真实训练</button></PageHeading>
 <form class="training-form" @submit.prevent="launch">
  <div v-if="errors.length" class="form-error" role="alert"><div v-for="error in errors" :key="error">{{error}}</div></div>
  <section class="training-section"><h2>任务与数据</h2><div class="form-grid training-fields">

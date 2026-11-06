@@ -59,7 +59,7 @@ try {
  const {renderToString}=await import('@vue/server-renderer')
  const routeDefs=(await vite.ssrLoadModule('/src/router/routes.ts')).routes
  const App=(await vite.ssrLoadModule('/src/App.vue')).default
- for(const path of ['/','/training','/jobs','/jobs/TRN-0248','/jobs/missing','/models','/models/new','/datasets','/datasets/new','/datasets/missing','/checkpoints','/settings','/training?resume=pi05_step_30000']) {
+ for(const path of ['/','/training/real','/real-jobs','/real-jobs/real-missing','/training','/jobs','/jobs/TRN-0248','/jobs/missing','/models','/models/new','/datasets','/datasets/new','/datasets/missing','/checkpoints','/settings','/training?resume=pi05_step_30000']) {
   const router=createRouter({history:createMemoryHistory(),routes:routeDefs})
   const app=createSSRApp(App);app.use(pinia2);app.use(router)
   await router.push(path);await router.isReady()

@@ -1,6 +1,6 @@
 # Robotic Lab 训练管理平台
 
-完整前端预览（v0.2.0），训练任务、训练指标与 Checkpoint 下载为 **Demo / Mock**；模型导入、数据集上传及 GPU 数量检测为真实操作。不执行训练脚本；GPU 数量通过服务端只读 xpu-smi / nvidia-smi 检测，训练指标仍为模拟。
+平台已接入 OpenPI PyTorch 真实训练：环境预检、任务队列、真实进程、日志/Loss、停止与 Checkpoint 续训。侧栏“模型训练”和“训练任务”进入真实流程；原演示页面仍保留，Mock 总览和 Mock Checkpoints 不代表真实任务。模型导入、数据集上传及 GPU 数量检测也是实际操作。
 
 ## 本地开发
 
@@ -151,10 +151,29 @@ P800 容器建议设置 `ACCELERATOR_BACKEND=xpu` 后启动服务，例如 `ACCE
 
 代码复制排除根 checkpoints、wandb、.git、环境、常见缓存、.log 和指定权重目录，assets 与实际源码保留；选中步骤以 weights/<step> 存储，附带原实验目录与格式元信息。原 env 未安装 pip 时保留“依赖未验证”提示，仍可导入；有 pip 时依赖检查失败仍中止。
 
-导入模型创建模拟训练时区分基础权重初始化、Checkpoint 参数微调、完整状态续训和从零训练。PyTorch 流程拒绝 JAX Checkpoints；“最新兼容版本”在创建任务时固定为具体版本路径并保存到任务配置/日志。新任务从 0 开始，模拟续训从选中步骤开始。保留数量仅删除当前模拟任务的历史 Checkpoint 记录，不删除真实磁盘文件。真实训练后端、按任意步骤恢复 OpenPI 的入口适配、架构兼容性验证和权重转换仍未实现。
+导入模型创建模拟训练时区分基础权重初始化、Checkpoint 参数微调、完整状态续训和从零训练。PyTorch 流程拒绝 JAX Checkpoints；“最新兼容版本”在创建任务时固定为具体版本路径并保存到任务配置/日志。新任务从 0 开始，模拟续训从选中步骤开始。保留数量仅删除当前模拟任务的历史 Checkpoint 记录，不删除真实磁盘文件。真实训练使用下方独立流程；架构兼容性自动验证和权重转换仍未实现。
 
 ### 云端模型访问配置（更新）
 
 模型接口联调期间不使用 MODEL_TRUSTED_PROXY_IPS 或 MODEL_ALLOWED_ORIGINS。扫描、导入、取消与重试均允许远程 JSON 请求，不再要求本地连接或配置受信任网关。用户登录和权限控制留待后续接入。
 
 Checkpoint 扫描已改为内容识别：检查所填目录，若本身有权重则作为一个版本；否则检查直接子目录，不要求数字命名。支持 safetensors/bin/pt/pth/ckpt 文件及 JAX params 目录。通用文件扩展名不保证 PyTorch/OpenPI 兼容，未知格式仅允许接入管理。非数字版本步数显示未知，不从文件名猜测；自动选择仅在已知步数的兼容版本中取最大值。扫描与导入不再使用网关白名单。
+
+
+### OpenPI PyTorch 真实训练
+
+入口：侧栏“模型训练” → `/#/training/real`；侧栏“训练任务” → `/#/real-jobs`。所有参数每行一项。仅支持已经导入的真实项目及数据集；项目需提供 `train_loop(config)` 和与示例一致的 OpenPI dataclass 配置。默认入口 `scripts/train_pytorch.py`。不会自动改装 JAX 训练为 PyTorch。
+
+服务用导入记录中的 Python 启动项目，显式加入导入代码的 src 路径。预检执行 torch.cuda 可用性、设备数量及小张量计算，导入实际入口和配置；P800 需安装能支持该入口 torch.cuda/NCCL 接口的 PyTorch 兼容栈，xpu-smi 能列卡不等于训练可用。预检不加载大模型或完整数据，也不保证多卡通信通过。环境无需 pip，但原环境和依赖路径必须保留。
+
+- 基础权重和 Checkpoint 参数微调要求非空 `model.safetensors`，从 Step 0 开始。JAX Orbax 的 params 不能作为 PyTorch 初始化权重。分片权重目前不支持。
+- 数据集自动定位唯一 `meta/info.json` 的根目录，映射为 `data.repo_id`。上传分类/格式标签不会转换数据；项目的 LeRobot 依赖版本、相机/动作字段、assets/<配置名>/<asset_id>/norm_stats.json 必须匹配。相对 assets 目录来自已导入项目。
+- 全局 Batch Size 必须被 GPU 数量整除。单卡直接启动 Python，多卡使用该环境的 `torch.distributed.run`。当前队列只并发一个平台任务；不能预留或停止平台外占用 GPU 的进程。
+- 日志原文写入 `managed-training/<任务ID>/training.log`，页面轮询最新 300 行和最近 2,000 个 Loss 点，解析示例入口的 `step=… loss=… lr=…` 日志。未输出指标时留空。输出、配置和状态均写入独立任务目录，可通过 `TRAINING_STORAGE_ROOT` 修改根目录。
+- 保存间隔交给原脚本执行，适配器确保最后一步调用正常保存逻辑。只登记同时有非空 model.safetensors、optimizer.pt、metadata.pt 的数字步骤目录，不读取 tmp_*。目前保留所有快照，需自行规划磁盘容量；结构检查不保证张量可恢复。
+- 停止发送 SIGTERM，10 秒未退出则 SIGKILL，不强制保存新的 Checkpoint。续训在原任务终止后选择完整步骤，创建新任务并异步复制该快照，然后让原脚本恢复模型、优化器和 step。复制需要额外磁盘空间；保留原任务，复制失败可查看原因。停止大型文件复制会在当前文件完成后生效。
+- 监督进程独立于 HTTP 服务，服务重启不会主动终止已有训练；机器/容器重启后存活进程检查会标记中断。不要在运行中移动项目或删除任务文件。多个 API 实例需要共享同一绝对存储根目录（同一台 Linux 主机）；分布式多节点调度暂不支持。
+
+云端验收：更新代码、`npm ci`、`npm run build` 后重启提供页面/API 的服务。导入完整 OpenPI 项目、原 env、兼容 PyTorch 权重和匹配数据集。进入真实训练，先选 1 GPU、Batch Size 1、workers 0、总步数 20、保存间隔 10、日志间隔 1，核对配置名/Asset ID 后预检。创建任务，确认日志与 Loss 来自训练脚本，检查 Checkpoint；再创建较长任务测试停止，并从已保存步骤恢复到更大总步数。单卡通过后再逐步测试多卡。
+
+验证范围：`npm test` 包含真实 Node/Python 子进程、队列、日志、最终保存、停止、续训和失败路径的集成测试，其中硬件和 OpenPI 使用隔离 fixture；这不是 P800 真机训练结果。用户云端的模型加载、数据兼容性、显存容量及多卡通信仍需实测。模型总览、演示任务以及原 Checkpoints 页仍为独立 Mock，真实 Checkpoints 在真实任务详情查看。

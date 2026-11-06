@@ -15,7 +15,7 @@ export function parseVisibleGpus(output, env = {}) {
   if(matched.some(d=>!d))throw new Error('GPU 可见性配置与检测结果不一致，请检查容器资源配置。')
   devices=[...new Set(matched)]
  }
- return devices.map((d,index)=>({index,name:d.name}))
+ return devices.map((d,index)=>({index,physicalIndex:d.index,name:d.name}))
 }
 export function parseVisibleXpus(output, env = {}) {
  if(/\b(?:VXPU|SR-IOV.*Enabled|Virtual Function)\b/i.test(output))throw new Error('当前为虚拟 XPU 环境，请接入平台分配资源接口。')
