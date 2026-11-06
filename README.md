@@ -169,7 +169,7 @@ Checkpoint 扫描已改为内容识别：检查所填目录，若本身有权重
 - 基础权重和 Checkpoint 参数微调要求非空 `model.safetensors`，从 Step 0 开始。JAX Orbax 的 params 不能作为 PyTorch 初始化权重。分片权重目前不支持。
 - 数据集自动定位唯一 `meta/info.json` 的根目录，映射为 `data.repo_id`。上传分类/格式标签不会转换数据；项目的 LeRobot 依赖版本、相机/动作字段、assets/<配置名>/<asset_id>/norm_stats.json 必须匹配。相对 assets 目录来自已导入项目。
 - 全局 Batch Size 必须被 GPU 数量整除。单卡直接启动 Python，多卡使用该环境的 `torch.distributed.run`。当前队列只并发一个平台任务；不能预留或停止平台外占用 GPU 的进程。
-- 日志原文写入 `managed-training/<任务ID>/training.log`，页面轮询最新 300 行和最近 2,000 个 Loss 点，解析示例入口的 `step=… loss=… lr=…` 日志。未输出指标时留空。输出、配置和状态均写入独立任务目录，可通过 `TRAINING_STORAGE_ROOT` 修改根目录。
+- 日志原文写入 `training-outputs/<任务名称_模型名称_数据集名称_时间>/training.log`，页面轮询最新 300 行和最近 2,000 个 Loss 点，解析示例入口的 `step=… loss=… lr=…` 日志。未输出指标时留空。新任务的输出、配置、日志和状态写入 `training-outputs` 下的可读任务目录，可通过 `TRAINING_OUTPUT_ROOT` 修改输出根目录。`TRAINING_STORAGE_ROOT` 仍用于稳定任务 ID 索引和旧任务读取。
 - 保存间隔交给原脚本执行，适配器确保最后一步调用正常保存逻辑。只登记同时有非空 model.safetensors、optimizer.pt、metadata.pt 的数字步骤目录，不读取 tmp_*。目前保留所有快照，需自行规划磁盘容量；结构检查不保证张量可恢复。
 - 停止发送 SIGTERM，10 秒未退出则 SIGKILL，不强制保存新的 Checkpoint。续训在原任务终止后选择完整步骤，创建新任务并异步复制该快照，然后让原脚本恢复模型、优化器和 step。复制需要额外磁盘空间；保留原任务，复制失败可查看原因。停止大型文件复制会在当前文件完成后生效。
 - 监督进程独立于 HTTP 服务，服务重启不会主动终止已有训练；机器/容器重启后存活进程检查会标记中断。不要在运行中移动项目或删除任务文件。多个 API 实例需要共享同一绝对存储根目录（同一台 Linux 主机）；分布式多节点调度暂不支持。
@@ -177,3 +177,12 @@ Checkpoint 扫描已改为内容识别：检查所填目录，若本身有权重
 云端验收：更新代码、`npm ci`、`npm run build` 后重启提供页面/API 的服务。导入完整 OpenPI 项目、原 env、兼容 PyTorch 权重和匹配数据集。进入真实训练，先选 1 GPU、Batch Size 1、workers 0、总步数 20、保存间隔 10、日志间隔 1，核对配置名/Asset ID 后预检。创建任务，确认日志与 Loss 来自训练脚本，检查 Checkpoint；再创建较长任务测试停止，并从已保存步骤恢复到更大总步数。单卡通过后再逐步测试多卡。
 
 验证范围：`npm test` 包含真实 Node/Python 子进程、队列、日志、最终保存、停止、续训和失败路径的集成测试，其中硬件和 OpenPI 使用隔离 fixture；这不是 P800 真机训练结果。用户云端的模型加载、数据兼容性、显存容量及多卡通信仍需实测。模型总览、演示任务以及原 Checkpoints 页仍为独立 Mock，真实 Checkpoints 在真实任务详情查看。
+
+
+### 训练输出目录
+
+新任务自动保存为 `training-outputs/任务名称_模型名称_数据集名称_YYYYMMDD-HHmmss/`，内部直接包含 `checkpoints/<step>/`、`training.log`、`config.json`，以及平台状态文件。创建训练页显示根目录及规则，任务详情显示实际绝对路径。目录创建后不随展示名称变化。
+
+默认根目录相对于服务启动工作目录。例如从 `/mnt/data/11197277/robotic-lab-trainning` 启动，输出位于该目录下的 `training-outputs`。可设置 `TRAINING_OUTPUT_ROOT=/mnt/data/11197277/robotic-lab-trainning/training-outputs` 固定绝对地址；多个服务实例须配置一致。时间默认 UTC+8（Asia/Shanghai），可用 `TRAINING_TIMEZONE` 指定 IANA 时区。名称保留中文，将空格和路径特殊字符替换为连字符，每段限制 60 字节；同名同秒并发创建使用短随机 ID 区分，完整名称保留在配置中。
+
+旧任务不移动、不改名，继续使用旧路径读取和续训。`managed-training/<任务ID>` 对新任务是指向可读输出目录的符号链接；平台通过此稳定索引查找任务。备份时需同时保留索引目录与真实输出目录，不要手动重命名输出目录。续训生成独立新目录，并在 `config.json` 的 `resumeParent` 中记录原任务、快照路径和 Step。OpenPI 适配器仅对新布局覆盖 `checkpoint_dir` 属性，不修改项目原始脚本。

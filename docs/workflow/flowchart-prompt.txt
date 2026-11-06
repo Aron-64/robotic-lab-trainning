@@ -1,0 +1,46 @@
+Use case: infographic-diagram
+Create ONE high resolution portrait 2:3 Chinese scientific workflow figure for a project presentation. paper-figure style: white background, precise flat vector-like rounded rectangles, crisp dark navy typography, restrained blue and teal accents, thin gray group boundaries, generous but efficient spacing, no gradients, no 3D, no decorative robots. Chinese sans-serif typography must be exceptionally legible. Main diagram occupies 85% of canvas. This is a usage flowchart of an implemented robot cloud training platform, NOT development timeline, not marketing poster.
+Title: “Robotic Lab”
+Subtitle: “云端训练平台 · 使用流程”
+Compose top-to-bottom in 5 numbered horizontal stages. Two parallel branches in stage 1 merge at stage 2. Main arrows blue, return arrows teal dashed running in reserved side gutters, never cross text. Use short exact labels below, no additional long paragraphs.
+
+01 “准备模型与数据”
+Left group “模型管理”: two small alternatives:
+“增加模型” with “GitHub 代码 + Hugging Face / ModelScope 权重”
+“转移模型” with “云端项目 + 权重路径 + 已有 env”
+These converge to “模型就绪”; small note “复制代码与权重，复用原环境”.
+Right group “数据集管理”: two alternatives “本地上传” and “云端路径导入” converge to “分类与可视化”; below short labels “Franka / Openarm / 宇树 G1 / 仿真” and “LeRobot v2.1 / v3.0 · Episode / 多相机视频”.
+Both branches have arrows to stage 2.
+
+02 “创建真实训练”
+One wide box with compact internal parameter rows or chips, not huge text block:
+“选择模型与数据集”
+“OpenPI 配置 · Assets · 初始权重”
+“GPU 数量 · Batch Size · 总步数 · 保存间隔”
+small side note “GPU 上限以容器检测结果为准”.
+
+03 “环境预检与调度”
+Main box “Python 环境 → PyTorch 设备检查 → 训练入口检查”
+Below diamond “预检通过？”
+Yes arrow “是” down to “进入任务队列” then “启动 OpenPI PyTorch”.
+No branch arrow “否” to a small “查看报错 / 调整配置” box, dashed return up to stage 2.
+Tiny note beneath queue “平台内一次运行一个任务”.
+
+04 “监控与保存”
+Three horizontally aligned modules inside a shared group, fed by the trainer:
+“训练状态”, “实时日志与 Loss”, “周期保存 Checkpoints”.
+Simple tiny log-lines glyph and tiny unlabeled schematic Loss sparkline (not measured results).
+Bottom status labels “完成 / 停止 / 失败” flow to stage 5.
+Note “停止训练保留已保存快照”.
+
+05 “选择快照并续训”
+Connected boxes left to right:
+“选择完整 Checkpoint” → “复制到新任务目录” → “恢复训练状态”
+small labels “模型 + 优化器 + Step” and “保留原任务与原文件”.
+Dashed teal arrow from restore box routes around right edge back to “进入任务队列” in stage 3. Label on return “设置更大总步数，重新预检”.
+Do NOT imply resumed jobs skip preflight: arrow should join environment preflight input rather than queue if needed. Precisely draw return to stage 3 preflight box, then usual pass → queue path.
+
+Footer compact two-line factual note within light gray strip:
+“PyTorch 训练需兼容权重；JAX Checkpoint 不能直接使用。”
+“P800 真机训练待验证；图示不包含 Mock 演示流程。”
+No invented success metrics, no claim of P800 verified. No code snippets. Exactly one portrait image.

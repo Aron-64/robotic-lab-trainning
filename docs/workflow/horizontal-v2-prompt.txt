@@ -1,0 +1,20 @@
+Redesign the referenced simplified Chinese workflow into ONE moderately detailed landscape paper-figure diagram. Aspect ratio 16:9, high resolution, crisp Chinese sans serif, white background, navy text, blue main arrows, teal resume arrow. NO overall title, NO subtitle, NO logo, NO footer, NO numbered banners. User wants richer than the simple chain but much less dense than a full poster. Use clean flat pale blue rounded boxes, compact subordinate labels, no decorative images. All words Chinese except named technical terms. Diagram should fill canvas with balanced margins.
+
+Arrange 5 main columns, left to right, with aligned headers INSIDE process boxes (these are node labels, not page titles):
+Column1 has TWO independent vertically stacked input panels:
+Panel '模型准备': two inner short rows '增加模型：代码仓库 + 权重仓库' and '转移模型：项目路径 + 权重路径 + env'. Small bottom line '复制代码与权重，复用已有环境' applies ONLY to 转移模型 row, visually indent beneath that row.
+Panel '数据准备': rows '本地上传 / 云端路径导入', '项目分类 · LeRobot v2.1 / v3.0', 'Episode 与多相机视频预览'.
+Both panels join with clean arrows into column2.
+
+Column2 '配置训练': four short rows '选择模型与数据集', '配置名 · Assets · 初始权重', 'GPU 数量 · Batch Size', '总步数 · 日志与保存间隔'. One tiny note inside 'GPU 数量不超过容器可用数量'.
+Arrow to column3.
+
+Column3 '环境预检': rows 'Python 环境与训练入口', 'PyTorch 设备可用性'. Below this box a small diamond '通过？'. Successful branch goes right to column4, label '是'. Failure branch goes downward, label '否', to small box '查看报错，调整配置', with thin blue return arrow routed below to column2. Keep feedback arrow separate from resume loop.
+
+Column4 '执行与监控': three vertically connected inner subnodes '任务排队' → '启动真实训练' → '查看日志与 Loss'. Under them small line '完成 / 停止 / 失败'. Do not include pause, fake utilization metrics, or mock tasks. Arrow from this column to column5.
+
+Column5 '保存与续训': three vertically connected inner subnodes '周期保存 Checkpoints' → '选择完整快照' → '创建续训任务'. Small note '模型 + 优化器 + Step' under select, small note '保留原任务与原文件' under new task. Main connection signifies monitoring and periodic saving, not that checkpoints only save after completion. Teal feedback arrow originates from '创建续训任务', exits bottom and runs left in a separate bottom gutter to ENTER the top or bottom of column3 '环境预检' with arrowhead. Label this loop '设置新的总步数，重新预检后续训'. This is the only long loop, clearly pointing back to preflight.
+
+Keep text large and readable, 2-level typography, short labels, never paragraphs. No explanatory footer or warnings. No invented features, no performance results, no 3D, no illustration mascots. Entire output is solely this workflow, no heading above it.
+
+Final correction: successful preflight decision connects to task queue; training connects to periodic checkpoint saving. Removed bypass connection around preflight decision.

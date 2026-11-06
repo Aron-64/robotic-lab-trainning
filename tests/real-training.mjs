@@ -6,6 +6,7 @@ import os from 'node:os'
 import {Readable} from 'node:stream'
 import {execFileSync} from 'node:child_process'
 const temp=await fs.mkdtemp(path.join(os.tmpdir(),'lab-training-'))
+process.env.TRAINING_OUTPUT_ROOT=path.join(temp,'outputs');process.env.TRAINING_TIMEZONE='Asia/Shanghai'
 process.env.MODEL_STORAGE_ROOT=path.join(temp,'models');process.env.DATASET_STORAGE_ROOT=path.join(temp,'datasets');process.env.TRAINING_STORAGE_ROOT=path.join(temp,'jobs');process.env.ACCELERATOR_BACKEND='xpu'
 const project=path.join(temp,'project'),modelId='model-aaaa',datasetId='dataset-bbbb'
 async function write(file,value){await fs.mkdir(path.dirname(file),{recursive:true});await fs.writeFile(file,value)}
@@ -94,12 +95,26 @@ async function wait(id,predicate){for(let i=0;i<200;i++){const {data}=await call
 const terminal=s=>['Completed','Failed','Stopped','Interrupted'].includes(s.status)
 const created=[]
 try{
+ const {safeName,outputName,createOutput}=await import('../server/training-output.mjs')
+ assert.equal(safeName('../任务 / A:*?'),'任务-A')
+ assert(Buffer.byteLength(safeName('中'.repeat(100)))<=60)
+ const label={name:'抓取',modelName:'模型',datasetName:'数据集'},date=new Date('2026-11-06T07:30:25Z')
+ assert.equal(outputName(label,date),'抓取_模型_数据集_20261106-153025')
+ const names=await Promise.all([createOutput(label,{root:path.join(temp,'collision'),date}),createOutput(label,{root:path.join(temp,'collision'),date})]);assert.notEqual(...names)
+ const storage=await call('/storage');assert.equal(storage.data.root,process.env.TRAINING_OUTPUT_ROOT)
  const pre=await call('/preflight',input);assert.equal(pre.status,200,JSON.stringify(pre));assert.equal(pre.data.report.tensorCheck,8)
  const bad=await call('',{...input,gpuCount:2});assert.equal(bad.status,400)
  const result=await call('',input);assert.equal(result.status,202,JSON.stringify(result));created.push(result.data.id)
- const done=await wait(result.data.id,terminal);assert.equal(done.status,'Completed',done.error);assert.equal(done.metrics.length,5);assert.deepEqual(done.checkpoints.map(c=>c.step),[2,4,5]);assert.match(await fs.readFile(path.join(process.env.TRAINING_STORAGE_ROOT,done.id,'training.log'),'utf8'),/step=5/)
+ const done=await wait(result.data.id,terminal);assert.equal(done.status,'Completed',done.error);assert.equal(done.metrics.length,5);assert.equal(done.config.checkpointDir,path.join(done.outputDir,'checkpoints'));assert.match(path.basename(done.outputDir),/^fixture_fixture_fixture-dataset_\d{8}-\d{6}/);assert.equal(await fs.realpath(path.join(process.env.TRAINING_STORAGE_ROOT,done.id)),done.outputDir);assert.deepEqual(done.checkpoints.map(c=>c.step),[2,4,5]);assert.match(await fs.readFile(path.join(process.env.TRAINING_STORAGE_ROOT,done.id,'training.log'),'utf8'),/step=5/)
+ // Legacy ID directory stays readable and can still seed a new-layout resume.
+ const legacyId='real-cccc',legacy=path.join(process.env.TRAINING_STORAGE_ROOT,legacyId),oldConfig={...done.config}
+ delete oldConfig.outputDir;delete oldConfig.outputLayout;oldConfig.experiment=legacyId;oldConfig.outputBase=path.join(legacy,'outputs');oldConfig.checkpointDir=path.join(oldConfig.outputBase,'fixture',legacyId)
+ await fs.mkdir(oldConfig.checkpointDir,{recursive:true});await fs.cp(path.join(done.config.checkpointDir,'4'),path.join(oldConfig.checkpointDir,'4'),{recursive:true})
+ await write(path.join(legacy,'config.json'),JSON.stringify(oldConfig));await write(path.join(legacy,'state.json'),JSON.stringify({...done,id:legacyId,outputDir:undefined,config:undefined}))
+ assert.equal((await call('/'+legacyId)).data.config.checkpointDir,oldConfig.checkpointDir)
+ const legacyResume=await call('/'+legacyId+'/resume',{step:4,steps:6});assert.equal(legacyResume.status,202);created.push(legacyResume.data.id);assert.equal((await wait(legacyResume.data.id,terminal)).status,'Completed')
  const resumed=await call('/'+done.id+'/resume',{step:4,steps:7});assert.equal(resumed.status,202,JSON.stringify(resumed));created.push(resumed.data.id)
- const next=await wait(resumed.data.id,terminal);assert.equal(next.status,'Completed',next.error);assert(next.logs.includes('RESUME_FROM=4'));assert.equal(next.step,7);assert.equal(next.checkpoints.at(-1).step,7)
+ const next=await wait(resumed.data.id,terminal);assert.equal(next.status,'Completed',next.error);assert(next.logs.includes('RESUME_FROM=4'));assert.equal(next.step,7);assert.notEqual(next.outputDir,done.outputDir);assert.equal(next.config.resumeParent.jobId,done.id);assert.equal(next.config.resumeParent.step,4);assert.equal(next.checkpoints.at(-1).step,7)
  const long=await call('',{...input,steps:100});created.push(long.data.id);await wait(long.data.id,s=>s.step>=2)
  const queued=await call('',input);created.push(queued.data.id);assert.equal(queued.data.status,'Queued')
  await call('/'+queued.data.id+'/stop',{});assert.equal((await wait(queued.data.id,terminal)).status,'Stopped')

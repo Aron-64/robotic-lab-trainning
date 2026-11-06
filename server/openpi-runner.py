@@ -27,6 +27,14 @@ if c.get('assetId'):
  assets=getattr(data,'assets');data=dataclasses.replace(data,assets=dataclasses.replace(assets,asset_id=c['assetId']))
 schedule=dataclasses.replace(cfg.lr_schedule,peak_lr=c['learningRate'])
 cfg=dataclasses.replace(cfg,data=data,exp_name=c['experiment'],checkpoint_base_dir=c['outputBase'],assets_base_dir=c['assets'],pytorch_weight_path=None if c.get('resumeFrom') is not None else c.get('weights'),resume=c.get('resumeFrom') is not None,overwrite=False,num_train_steps=c['steps'],batch_size=c['batchSize'],num_workers=c['workers'],save_interval=c['saveInterval'],log_interval=c['logInterval'],seed=c['seed'],lr_schedule=schedule,pytorch_training_precision=c['precision'],wandb_enabled=False)
+if c.get('outputLayout') == 'flat-v1':
+ # Preserve every project config field while overriding only the output property.
+ # Inherited dataclass init and dataclasses.replace also retain this subclass.
+ class PlatformTrainConfig(type(cfg)):
+  @property
+  def checkpoint_dir(self):
+   return pathlib.Path(c['checkpointDir'])
+ cfg=PlatformTrainConfig(**{f.name:getattr(cfg,f.name) for f in dataclasses.fields(cfg) if f.init})
 if pathlib.Path(cfg.checkpoint_dir).resolve()!=pathlib.Path(c['checkpointDir']).resolve():raise RuntimeError('配置输出路径不一致')
 # The supplied trainer can omit the final checkpoint when steps is not divisible
 # by save_interval. Force its normal save routine on the final completed step.

@@ -4,6 +4,7 @@ import {spawn,execFile} from 'node:child_process'
 import {promisify} from 'node:util'
 import {fileURLToPath} from 'node:url'
 import {randomUUID} from 'node:crypto'
+import {outputRoot,outputTimezone,createOutput} from './training-output.mjs'
 import {trainingRoot as root,prepareTraining,trainingEnv,atomicJson,completedCheckpoints} from './training-core.mjs'
 const execute=promisify(execFile),runner=fileURLToPath(new URL('./openpi-runner.py',import.meta.url)),supervisor=fileURLToPath(new URL('./training-worker.mjs',import.meta.url))
 let scheduling=false;const folder=id=>{if(!/^real-[a-f0-9-]+$/.test(id))throw new Error('任务 ID 无效');return path.join(root,id)}
@@ -34,6 +35,7 @@ const timer=setInterval(()=>void schedule().catch(()=>{}),2500);timer.unref()
 async function body(req){let text='';for await(const b of req){text+=b;if(text.length>20000)throw new Error('请求过大')}return JSON.parse(text)}
 function send(res,status,data){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data))}
 export async function trainingMiddleware(req,res,next){const url=req.url?.split('?')[0];if(!url?.startsWith('/api/training'))return next?.();try{
+ if(req.method==='GET'&&url==='/api/training/storage')return send(res,200,{root:outputRoot,timezone:outputTimezone})
  if(req.method==='GET'&&url==='/api/training'){return send(res,200,{jobs:(await states()).reverse()})}
  const [, , ,id,action]=url.split('/')
  if(req.method==='GET'&&id){const dir=folder(id);return send(res,200,{...JSON.parse(await fs.readFile(path.join(dir,'state.json'),'utf8')),config:JSON.parse(await fs.readFile(path.join(dir,'config.json'),'utf8'))})}
@@ -46,10 +48,11 @@ export async function trainingMiddleware(req,res,next){const url=req.url?.split(
   const previous=JSON.parse(await fs.readFile(path.join(folder(id),'state.json'),'utf8'));if(!['Stopped','Failed','Completed','Interrupted'].includes(previous.status))throw new Error('原任务尚未停止')
   const old=JSON.parse(await fs.readFile(path.join(folder(id),'config.json'),'utf8')),cps=await completedCheckpoints(old.checkpointDir),cp=cps.find(v=>v.step===Number(input.step))
   if(!cp||!Number.isInteger(input.steps)||input.steps<=cp.step)throw new Error('请选择完整 Checkpoint，并填写更大的总步数')
-  c=await prepareTraining({...old,steps:input.steps});c.resumeSource=cp.path;c.resumeFrom=cp.step
+  c=await prepareTraining({...old,steps:input.steps});c.resumeSource=cp.path;c.resumeFrom=cp.step;c.resumeParent={jobId:id,checkpoint:cp.path,step:cp.step}
  }else if(url==='/api/training'){c=await prepareTraining(input)}else return send(res,404,{message:'未知训练接口'})
- const jobId='real-'+randomUUID(),dir=folder(jobId);c.experiment=jobId;c.outputBase=path.join(dir,'outputs');c.checkpointDir=path.join(c.outputBase,c.configName,c.experiment)
- await fs.mkdir(dir,{recursive:true})
- await atomicJson(path.join(dir,'config.json'),c);const state={id:jobId,name:c.name,modelName:c.modelName,datasetName:c.datasetName,status:'Queued',created:new Date().toISOString(),steps:c.steps,step:c.resumeFrom??0,loss:null,metrics:[],logs:[],checkpoints:[],error:'',configPath:path.join(dir,'config.json')};await atomicJson(path.join(dir,'state.json'),state);void schedule().catch(()=>{});return send(res,202,state)
+ const jobId='real-'+randomUUID(),dir=folder(jobId),created=new Date();c.experiment=jobId;c.outputDir=await createOutput(c,{date:created});c.outputBase=c.outputDir;c.checkpointDir=path.join(c.outputDir,'checkpoints');c.outputLayout='flat-v1';c.outputTimezone=outputTimezone
+ // Keep stable ID lookup and legacy tasks, while all new files live in the readable directory.
+ await fs.mkdir(root,{recursive:true});try{await fs.symlink(c.outputDir,dir,'dir')}catch(e){await fs.rmdir(c.outputDir);throw e}
+ await atomicJson(path.join(dir,'config.json'),c);const state={id:jobId,name:c.name,modelName:c.modelName,datasetName:c.datasetName,status:'Queued',created:created.toISOString(),outputDir:c.outputDir,steps:c.steps,step:c.resumeFrom??0,loss:null,metrics:[],logs:[],checkpoints:[],error:'',configPath:path.join(c.outputDir,'config.json')};await atomicJson(path.join(dir,'state.json'),state);void schedule().catch(()=>{});return send(res,202,state)
  }catch(e){return send(res,400,{message:e.message})}}
 export function trainingPlugin(){return {name:'real-training',configureServer(s){s.middlewares.use(trainingMiddleware)},configurePreviewServer(s){s.middlewares.use(trainingMiddleware)}}}
