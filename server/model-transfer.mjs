@@ -20,7 +20,7 @@ export async function validateTransfer(input,storage,roots=(process.env.MODEL_TR
  }
  if(config.sourceWeights&&within(config.sourceWeights,config.sourceCode))throw new Error('权重目录不能包含整个代码目录。')
  if(within(config.sourceEnvironment,config.sourceCode)||within(config.sourceEnvironment,config.sourceWeights))throw new Error('代码和权重不能位于环境目录内。')
- if(weightMode==='checkpoints'){const selected=input.selectedCheckpoints??[];if(!Array.isArray(selected)||selected.length>500||selected.some(n=>typeof n!=='string'||!/^\d+$/.test(n)))throw new Error('Checkpoint 选择无效');config.selectedCheckpoints=[...new Set(selected)]}
+ if(weightMode==='checkpoints'){const selected=input.selectedCheckpoints??[];if(!Array.isArray(selected)||selected.length>500||selected.some(n=>typeof n!=='string'||!n||n==='..'||n.includes('/')||n.includes('\\')||/[\x00-\x1f]/.test(n)))throw new Error('Checkpoint 选择无效');config.selectedCheckpoints=[...new Set(selected)]}
  await fs.access(path.join(config.sourceEnvironment,'bin/python'),fs.constants.X_OK)
  return config
 }

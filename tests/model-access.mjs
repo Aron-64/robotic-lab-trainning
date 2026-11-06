@@ -1,33 +1,31 @@
 import assert from 'node:assert/strict'
-import {trustedModelCaller,modelRequestOriginAllowed} from '../server/model-access.mjs'
-const request=(ip,origin='https://lab.example',host='lab.example')=>({socket:{remoteAddress:ip},headers:{origin,host,'content-type':'application/json'}})
-assert.equal(trustedModelCaller('127.0.0.1',{}),true)
-assert.equal(trustedModelCaller('::ffff:127.0.0.1',{}),true)
-assert.equal(trustedModelCaller('10.0.0.2',{}),false)
-assert.equal(trustedModelCaller(undefined,{}),false)
-assert.equal(trustedModelCaller('::ffff:10.0.0.2',{MODEL_TRUSTED_PROXY_IPS:'10.0.0.2'}),true)
-assert.equal(trustedModelCaller('10.0.0.2',{MODEL_TRUSTED_PROXY_IPS:'*'}),false)
-assert.equal(modelRequestOriginAllowed(request('10.0.0.9'),{}),true)
-assert.equal(modelRequestOriginAllowed(request('10.0.0.9','https://evil.example'),{}),false)
-const env={MODEL_TRUSTED_PROXY_IPS:'10.0.0.2',MODEL_ALLOWED_ORIGINS:'https://lab.example'}
-assert.equal(modelRequestOriginAllowed(request('10.0.0.2','https://lab.example','localhost:8888'),env),true)
-assert.equal(modelRequestOriginAllowed(request('10.0.0.9','https://lab.example','localhost:8888'),env),false)
-console.log('PASS: remote same-origin scans, exact proxy IP trust, rewritten Host allowlist, missing peer and spoofed origin rejection')
-const {mkdtemp,mkdir,writeFile,rm}=await import('node:fs/promises')
-const {tmpdir}=await import('node:os')
-const {join}=await import('node:path')
-const {Readable}=await import('node:stream')
-const temp=await mkdtemp(join(tmpdir(),'model-access-'))
-process.env.MODEL_STORAGE_ROOT=join(temp,'storage');process.env.MODEL_TRANSFER_ROOTS=join(temp,'source')
+import {mkdtemp,mkdir,writeFile,rm,readFile} from 'node:fs/promises'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+import {Readable} from 'node:stream'
+import {execFileSync} from 'node:child_process'
+const temp=await mkdtemp(join(tmpdir(),'model-cloud-flow-'))
+const source=join(temp,'source'),environment=join(source,'env'),code=join(source,'project'),experiment=join(source,'experiment')
+process.env.MODEL_STORAGE_ROOT=join(temp,'storage');process.env.MODEL_TRANSFER_ROOTS=source
 try{
- await mkdir(join(temp,'source','1000'),{recursive:true});await writeFile(join(temp,'source','1000','model.safetensors'),'fixture')
+ await mkdir(join(experiment,'best'),{recursive:true});await writeFile(join(experiment,'best','model.safetensors'),'fixture weights')
+ await mkdir(code);await writeFile(join(code,'train.py'),'print("fixture only")')
+ execFileSync('python3',['-m','venv','--without-pip',environment],{timeout:30000})
  const {modelManagerMiddleware}=await import('../server/model-manager.mjs')
- async function call(url,origin='https://lab.example'){
-  const req=Readable.from([JSON.stringify({sourceWeights:join(temp,'source')})]);Object.assign(req,request('10.9.8.7',origin),{method:'POST',url});let status,data
-  await modelManagerMiddleware(req,{writeHead(s){status=s},end(v){data=JSON.parse(v)}});return {status,data}
+ async function call(url,payload={},method='POST'){
+  const req=Readable.from(method==='GET'?[]:[JSON.stringify(payload)])
+  Object.assign(req,{socket:{remoteAddress:'10.9.8.7'},method,url,headers:{host:'localhost:8888',origin:'https://cloud.example','content-type':'application/json'}})
+  let status,data;await modelManagerMiddleware(req,{writeHead(s){status=s},end(v){data=JSON.parse(v)}});return {status,data}
  }
- const result=await call('/api/model-imports/scan-checkpoints');assert.equal(result.status,200);assert.equal(result.data.checkpoints[0].step,1000)
- assert.equal((await call('/api/model-imports')).status,403)
- assert.equal((await call('/api/model-imports/scan-checkpoints','https://evil.example')).status,403)
- console.log('PASS: actual remote scan route succeeds; remote execution and foreign-origin scan rejected')
+ const result=await call('/api/model-imports/scan-checkpoints',{sourceWeights:experiment});assert.equal(result.status,200);assert.equal(result.data.checkpoints[0].name,'best')
+ const created=await call('/api/model-imports',{mode:'transfer',name:'Cloud integration',sourceCode:code,sourceEnvironment:environment,sourceWeights:experiment,weightMode:'checkpoints',selectedCheckpoints:['best']})
+ assert.equal(created.status,202,JSON.stringify(created.data));const id=created.data.id
+ async function waitReady(){for(let i=0;i<300;i++){const {data}=await call(`/api/model-imports/${id}`,{},'GET');if(['ready','failed','cancelled'].includes(data.status)){assert.equal(data.status,'ready',data.error);return data}await new Promise(r=>setTimeout(r,20))}throw new Error('Import timed out')}
+ let imported=await waitReady();assert.match(imported.environmentCheck,/未安装 pip/)
+ assert.equal(await readFile(join(imported.paths.weights,'best','model.safetensors'),'utf8'),'fixture weights')
+ assert.equal(imported.paths.environment,environment)
+ assert.equal((await call(`/api/model-imports/${id}/cancel`)).status,200)
+ assert.equal((await call(`/api/model-imports/${id}/retry`)).status,202);await waitReady()
+ assert.equal((await call('/api/model-imports/scan-checkpoints',{sourceWeights:'/etc'})).status,400)
+ console.log('PASS: remote/proxied scan → transfer → real no-pip Python verification → selected files copied → status → retry; path checks preserved')
 }finally{await rm(temp,{recursive:true,force:true})}

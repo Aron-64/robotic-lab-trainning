@@ -1,4 +1,3 @@
-import {trustedModelCaller,modelRequestOriginAllowed} from './model-access.mjs'
 import {scanCheckpoints} from './checkpoint-catalog.mjs'
 import { spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
@@ -54,18 +53,16 @@ export async function importModel(job,executor=run){active=job.id;job.cancelRequ
  const info=await executor(job,job.paths.python,['-c',"import json,sys,importlib.metadata as m; print(json.dumps({'python':sys.version.split()[0], 'torch':next((d.version for d in m.distributions() if d.metadata['Name'].lower()=='torch'), '未安装')}))"],{cwd:base,timeout:30000})
  job.runtime=JSON.parse(info.trim().split('\n').at(-1));job.status='ready';job.error='';log(job,'代码、权重和 Python 依赖准备完成；尚未执行训练验证。')
  }catch(error){job.status=job.cancelRequested?'cancelled':'failed';job.error=sanitize(error.message);log(job,job.error)}finally{job.updatedAt=new Date().toISOString();await persist(job);active=null}}
-const publicJob=job=>({...job,readme:job.readme??'',cancelRequested:undefined})
+const publicJob=job=>({...job,status:active===job.id&&terminal.has(job.status)?'checking':job.status,readme:job.readme??'',cancelRequested:undefined})
 function send(res,code,data){res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data))}
 async function body(req){let content='';for await(const chunk of req){content+=chunk;if(content.length>10000)throw new Error('请求内容过长。')}return JSON.parse(content)}
 export async function modelManagerMiddleware(req,res,next){const pathname=req.url?.split('?')[0];if(!pathname?.startsWith('/api/model-imports'))return next?.();try{
  await init()
  if(req.method==='GET'&&pathname==='/api/model-imports'){return send(res,200,{root,jobs:[...jobs.values()].sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(publicJob)})}
  if(req.method==='GET'){const id=pathname.split('/')[3];const job=jobs.get(id);return job?send(res,200,publicJob(job)):send(res,404,{message:'导入记录不存在。'})}
- // Mutations require a same-origin browser request. Transfer paths are restricted to configured source roots.
- if(!modelRequestOriginAllowed(req))return send(res,403,{message:'仅接受同源页面的 JSON 请求；若网关重写 Host，请配置受信任网关及 MODEL_ALLOWED_ORIGINS。'})
- // Read-only scans do not execute environment code and remain confined to allowed roots.
+ // Integration mode: no caller-IP, Origin or proxy allowlist gate.
+ if(req.headers['content-type']?.split(';')[0]!=='application/json')return send(res,415,{message:'请使用 JSON 提交请求。'})
  if(req.method==='POST'&&pathname==='/api/model-imports/scan-checkpoints'){const input=await body(req);const folder=await validateCheckpointRoot(input.sourceWeights,root);return send(res,200,{checkpoints:await scanCheckpoints(folder)})}
- if(!trustedModelCaller(req.socket?.remoteAddress))return send(res,403,{message:'扫描允许远程访问；执行模型导入需通过已鉴权网关。请管理员将网关直连 IP 配置到 MODEL_TRUSTED_PROXY_IPS 并重启服务。'})
  if(req.method==='POST'&&pathname==='/api/model-imports'){
   if(active)return send(res,409,{message:'已有导入正在运行，请等待或取消后再创建。'})
   const input=await body(req);const config=input.mode==='transfer'?await validateTransfer(input,root):validateImport(input);if([...jobs.values()].some(j=>j.name===config.name))return send(res,409,{message:'模型名称已存在，请使用不同名称。'});const id='model-'+randomUUID();const job={...config,id,status:'queued',createdAt:new Date().toISOString(),logs:[],error:'',paths:{root:path.join(root,id)},plan:null}

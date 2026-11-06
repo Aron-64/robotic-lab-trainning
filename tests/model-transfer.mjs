@@ -43,6 +43,9 @@ try{
  await mkdir(path.join(code,'wandb'));await symlink('/does/not/exist',path.join(code,'wandb','latest-run'))
  const {scanCheckpoints}=await import('../server/checkpoint-catalog.mjs')
  const scanned=await scanCheckpoints(experiment);assert.equal(scanned.length,2);assert.equal(scanned[0].resumable,false);assert.equal(scanned[1].resumable,true)
+ await mkdir(path.join(experiment,'best'));await writeFile(path.join(experiment,'best','model.safetensors'),'best')
+ const named=await scanCheckpoints(experiment);assert.equal(named.find(c=>c.name==='best').step,null)
+ const direct=await scanCheckpoints(path.join(experiment,'best'));assert.equal(direct[0].name,'.')
  const transferred={...await validateTransfer({...input,sourceWeights:experiment,weightMode:'checkpoints',selectedCheckpoints:['2000']},root),id:'model-selected',logs:[],paths:{}}
  await mkdir(path.join(root,transferred.id));calls=[]
  await importModel(transferred,async(j,cmd,args)=>{calls.push(args);return JSON.stringify({prefix:env,python:'3.11',torch:'2.6',pip:false})})

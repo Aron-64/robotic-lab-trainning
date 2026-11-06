@@ -89,7 +89,7 @@ Vue 3、TypeScript、Vite、Pinia、Vue Router、ECharts、Lucide。统一自定
 - GitHub 目前仅支持公开仓库。受限 Hugging Face 权重需先获得仓库访问权，并在服务环境设置 `HF_TOKEN`；ModelScope 使用服务端 `MODELSCOPE_API_TOKEN`。凭据不通过页面提交，不写入导入记录，已知令牌从日志中过滤。
 - 导入过程会执行仓库安装代码，需使用可信项目。一次只运行一个导入任务，可取消、查看日志、失败后重试。取消保留已下载文件；服务重启后标记中断，不自动恢复执行。
 - `npm run dev` / `npm run preview` 已包含导入接口。正式静态部署可运行 `npm run model-api`（同时提供模型导入与 GPU 资源接口，默认 loopback:8001），网关保留 Host 与 Origin 并代理 `/api/model-imports` 和 `/api/resources/gpus`。不要同时在相同端口运行 `gpu-api` 和 `model-api`。
-- 写操作仅接受本地连接与同源 JSON 请求。远程开发使用 SSH/VS Code 端口转发。公司云平台部署前需由已鉴权网关负责用户隔离和授权；当前服务是单容器、单用户开发用途。
+- 模型接口联调期间接受远程 JSON 请求，不校验来源 IP、Origin 或网关白名单。目录合法性及导入参数检查仍保留。
 
 新页面：`/#/models/new`。成功导入的模型自动加入训练选择列表（训练依旧是 Mock）。真实导入列表从服务端持久化目录读取，页面刷新不会丢失。
 
@@ -127,7 +127,7 @@ P800 容器建议设置 `ACCELERATOR_BACKEND=xpu` 后启动服务，例如 `ACCE
 
 默认仅允许 `/mnt/data` 下的源目录；额外路径可设置 `MODEL_TRANSFER_ROOTS=/mnt/data:/data/models`（Linux 冒号分隔），环境也必须在允许范围内。源目录不得与管理目录互相包含。仅支持普通文件/目录；符号链接会报错，需要先准备普通文件副本。环境的 bin/python 可使用 venv 常见的解释器链接。请使用可信环境，校验会执行环境内 Python；此检查不保证训练入口、XPU 库或完整模型兼容性。已有 editable 安装可能继续引用原代码，必须保留原代码和 env；服务不会自动重写依赖。
 
-继承原模型导入接口的同源及本地访问限制，云端通过已鉴权本地网关或 SSH 端口转发使用。文件复制已通过临时目录测试，Python 检查使用模拟执行器，尚未在实际云端环境验证。
+模型转移支持云端页面直接提交。已使用临时真实无 pip Python 环境验证复制和重试；尚未在用户实际 P800 环境验证。
 
 ### 数据集分类与可视化
 
@@ -155,4 +155,6 @@ P800 容器建议设置 `ACCELERATOR_BACKEND=xpu` 后启动服务，例如 `ACCE
 
 ### 云端模型访问配置（更新）
 
-Checkpoint 扫描允许远程同源 JSON 请求，不再要求 localhost；仍受 MODEL_TRANSFER_ROOTS 限制且不会执行环境 Python。导入、取消、重试接受本地请求或 MODEL_TRUSTED_PROXY_IPS 指定的网关直连 IP（逗号分隔，精确匹配，不支持通配符）。该配置不提供登录认证，只能填写已经负责认证的网关地址；后端端口应仅供该网关访问。不会依据 X-Forwarded-For 等客户端头部放行。若网关重写 Host，另外设置 MODEL_ALLOWED_ORIGINS 为浏览器使用的完整 origin（例如 https://lab.example，逗号分隔），只对受信任来源生效。修改环境变量后重启后端。
+模型接口联调期间不使用 MODEL_TRUSTED_PROXY_IPS 或 MODEL_ALLOWED_ORIGINS。扫描、导入、取消与重试均允许远程 JSON 请求，不再要求本地连接或配置受信任网关。用户登录和权限控制留待后续接入。
+
+Checkpoint 扫描已改为内容识别：检查所填目录，若本身有权重则作为一个版本；否则检查直接子目录，不要求数字命名。支持 safetensors/bin/pt/pth/ckpt 文件及 JAX params 目录。通用文件扩展名不保证 PyTorch/OpenPI 兼容，未知格式仅允许接入管理。非数字版本步数显示未知，不从文件名猜测；自动选择仅在已知步数的兼容版本中取最大值。扫描与导入不再使用网关白名单。

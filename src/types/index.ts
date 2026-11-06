@@ -1,4 +1,4 @@
-export interface ImportedCheckpoint {name:string;step:number;path:string;format:string;resumable:boolean;complete:boolean;size:number;note:string;experiment?:string}
+export interface ImportedCheckpoint {name:string;step:number|null;path:string;format:string;resumable:boolean;complete:boolean;size:number;note:string;experiment?:string}
 export type JobStatus = 'Running' | 'Completed' | 'Failed' | 'Stopped' | 'Pending'
 export interface TrainingConfig { weightUsage?:'base'|'checkpoint'|'resume'|'scratch'; weightSelection?:string; resolvedWeightPath?:string; resolvedWeightStep?:number; keepLast?:number; name:string; model:string; dataset:string; environment:string; steps:number; batchSize:number; learningRate:number; optimizer:string; precision:string; gpuDevices:number[]; saveInterval:number; outputDir:string; resume:string; seed:number; extra:number }
 export interface Job { id: string; name: string; model: string; dataset: string; status: JobStatus; progress: number; step: number; loss: number; gpu: string; started: string; config?:TrainingConfig; elapsed?:number; logs?:string[]; metrics?:MetricPoint[] }
